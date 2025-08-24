@@ -138,10 +138,10 @@ else:
 # --- FILTRI SQUADRE (ora dinamici) ---
 # Modificato per supportare la logica Home vs Away
 if "home_team" in filtered_teams_df.columns and "away_team" in filtered_teams_df.columns:
-    home_teams = ["Tutte"] + sorted(filtered_teams_df["home_team"].dropna().unique())
-    selected_home = st.sidebar.selectbox("Seleziona Squadra Home", home_teams)
-    away_teams = ["Tutte"] + sorted(filtered_teams_df["away_team"].dropna().unique())
-    selected_away = st.sidebar.selectbox("Seleziona Squadra Away", away_teams)
+    all_available_teams = sorted(list(set(filtered_teams_df["home_team"].dropna().unique()) | set(filtered_teams_df["away_team"].dropna().unique())))
+    
+    selected_home = st.sidebar.selectbox("Seleziona Squadra Home", ["Tutte"] + all_available_teams)
+    selected_away = st.sidebar.selectbox("Seleziona Squadra Away", ["Tutte"] + all_available_teams)
 
     # Applica i filtri delle squadre con logica AND
     if selected_home != "Tutte":
@@ -181,20 +181,20 @@ def add_range_filter(col_name, label=None):
                 st.sidebar.warning(f"Valori non validi per {label or col_name}. Inserisci numeri.")
     else:
         # Messaggio più specifico per le colonne delle quote
-        if col_name in ["odd_home", "odd_draw", "odd_away"]:
+        if col_name in ["odd_home", "odd_draw", "odd_away", "odd_over_2_5"]: # Aggiunto odd_over_2_5
             st.sidebar.info(f"La colonna '{col_name}' non è stata trovata nel dataset. Controlla il nome esatto in Supabase (sensibile al maiuscolo/minuscolo).")
         else:
             st.sidebar.info(f"La colonna '{col_name}' non è disponibile per il filtro range.")
 
 
 st.sidebar.header("Filtri Quote")
-for col in ["odd_home", "odd_draw", "odd_away"]:
-    add_range_filter(col)
+for col in ["odd_home", "odd_draw", "odd_away", "odd_over_2_5"]: # Aggiunto odd_over_2_5
+    add_range_filter(col, label=col.replace("odd_", "").replace("_", " ").title())
 
 # --- APPLICA FILTRI AL DATAFRAME PRINCIPALE ---
 filtered_df = df.copy()
 for col, val in filters.items():
-    if col in ["odd_home", "odd_draw", "odd_away"]:
+    if col in ["odd_home", "odd_draw", "odd_away", "odd_over_2_5"]: # Aggiunto odd_over_2_5
         if col in filtered_df.columns:
             mask = pd.to_numeric(filtered_df[col].astype(str).str.replace(",", "."), errors="coerce").between(val[0], val[1])
             filtered_df = filtered_df[mask.fillna(False)] # Usa False per escludere i NaN dai range
@@ -464,14 +464,8 @@ def calcola_stats_sh(df_to_analyze):
     df_winrate_sh = pd.DataFrame(stats_sh_winrate, columns=["Esito", "Conteggio", "WinRate %", "Odd Minima"])
     
     # Over Goals SH
-    over_sh_data = []
     df_sh["tot_goals_sh"] = df_sh["gol_home_sh"] + df_sh["gol_away_sh"]
-    for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-        count = (df_sh["tot_goals_sh"] > t).sum()
-        perc = round((count / len(df_sh)) * 100, 2)
-        odd_min = round(100 / perc, 2) if perc > 0 else "-"
-        over_sh_data.append([f"Over {t} SH", count, perc, odd_min])
-    df_over_sh = pd.DataFrame(over_sh_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
+    df_over_sh = calcola_over_goals(df_sh, "tot_goals_sh", "SH")
 
     # BTTS SH
     btts_sh_count = ((df_sh["gol_home_sh"] > 0) & (df_sh["gol_away_sh"] > 0)).sum()
@@ -684,7 +678,7 @@ def calcola_to_score_sh(df_to_analyze):
     df_stats = pd.DataFrame(data, columns=["Esito", "Conteggio", "Percentuale %"])
     df_stats["Odd Minima"] = df_stats["Percentuale %"].apply(lambda x: round(100/x, 2) if x > 0 else "-")
     
-    return df_stats
+    return pd.DataFrame(stats, columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
 
 def calcola_clean_sheet_sh(df_to_analyze):
     if df_to_analyze.empty:
@@ -1436,6 +1430,197 @@ def calcola_multi_gol(df_to_analyze, col_gol, titolo):
     df_stats = pd.DataFrame(data, columns=[f"Mercato ({titolo})", "Conteggio", "Percentuale %", "Odd Minima"])
     return df_stats
 
+# --- NUOVA FUNZIONE PER CALCOLARE OVER GOALS IN MODO GENERICO ---
+def calcola_over_goals(df_to_analyze, total_goals_col, period_label):
+    if df_to_analyze.empty:
+        return pd.DataFrame()
+    
+    if total_goals_col not in df_to_analyze.columns:
+        st.warning(f"Colonna '{total_goals_col}' mancante per Over Goals {period_label}.")
+        return pd.DataFrame()
+
+    df_temp = df_to_analyze.copy()
+    df_temp[total_goals_col] = pd.to_numeric(df_temp[total_goals_col], errors='coerce')
+    df_temp = df_temp.dropna(subset=[total_goals_col])
+
+    if df_temp.empty:
+        return pd.DataFrame()
+
+    over_data = []
+    total_matches = len(df_temp)
+    for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
+        count = (df_temp[total_goals_col] > t).sum()
+        perc = round((count / total_matches) * 100, 2) if total_matches > 0 else 0
+        odd_min = round(100 / perc, 2) if perc > 0 else "-"
+        over_data.append([f"Over {t} {period_label}", count, perc, odd_min])
+    
+    return pd.DataFrame(over_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
+
+
+# --- SEZIONE 0: Statistiche Dettagliate Squadre Selezionate ---
+st.markdown("---")
+st.subheader("0. Statistiche Dettagliate Squadre Selezionate")
+st.write("Analisi delle prestazioni individuali delle squadre selezionate, filtrate dai parametri della sidebar (esclusa la selezione della squadra stessa).")
+
+if selected_home != "Tutte" or selected_away != "Tutte":
+    col_home_stats, col_away_stats = st.columns(2)
+
+    if selected_home != "Tutte":
+        df_home_team_stats = filtered_df[filtered_df["home_team"] == selected_home].copy()
+        with col_home_stats:
+            st.markdown(f"### Statistiche di {selected_home} (in casa)")
+            if not df_home_team_stats.empty:
+                st.write(f"Basato su **{len(df_home_team_stats)}** partite in casa.")
+                
+                # Media Gol
+                st.markdown("#### Media Gol")
+                required_cols_goals = ["gol_home_ht", "gol_away_ht", "gol_home_ft", "gol_away_ft"]
+                if all(col in df_home_team_stats.columns for col in required_cols_goals):
+                    df_home_team_stats["gol_home_ht"] = pd.to_numeric(df_home_team_stats["gol_home_ht"], errors='coerce')
+                    df_home_team_stats["gol_away_ht"] = pd.to_numeric(df_home_team_stats["gol_away_ht"], errors='coerce')
+                    df_home_team_stats["gol_home_ft"] = pd.to_numeric(df_home_team_stats["gol_home_ft"], errors='coerce')
+                    df_home_team_stats["gol_away_ft"] = pd.to_numeric(df_home_team_stats["gol_away_ft"], errors='coerce')
+                    df_home_team_stats_clean = df_home_team_stats.dropna(subset=required_cols_goals)
+
+                    if not df_home_team_stats_clean.empty:
+                        avg_ht_goals = (df_home_team_stats_clean["gol_home_ht"] + df_home_team_stats_clean["gol_away_ht"]).mean()
+                        avg_ft_goals = (df_home_team_stats_clean["gol_home_ft"] + df_home_team_stats_clean["gol_away_ft"]).mean()
+                        avg_sh_goals = (df_home_team_stats_clean["gol_home_ft"] + df_home_team_stats_clean["gol_away_ft"] - df_home_team_stats_clean["gol_home_ht"] - df_home_team_stats_clean["gol_away_ht"]).mean()
+                        st.table(pd.DataFrame({
+                            "Periodo": ["HT", "FT", "SH"],
+                            "Media Gol": [f"{avg_ht_goals:.2f}", f"{avg_ft_goals:.2f}", f"{avg_sh_goals:.2f}"]
+                        }))
+                    else: st.info("Nessun dato valido per la media gol.")
+                else: st.warning("Colonne gol mancanti per la media gol.")
+
+                # WinRate
+                st.markdown("#### WinRate FT")
+                df_winrate_ft = calcola_winrate(df_home_team_stats, "risultato_ft")
+                if not df_winrate_ft.empty:
+                    st.dataframe(df_winrate_ft.style.background_gradient(cmap='RdYlGn', subset=['WinRate %']))
+                else: st.info("Nessun dato per WinRate FT.")
+
+                # Over Goals FT
+                st.markdown("#### Over Goals FT")
+                if "gol_home_ft" in df_home_team_stats.columns and "gol_away_ft" in df_home_team_stats.columns:
+                    df_home_team_stats["tot_goals_ft"] = pd.to_numeric(df_home_team_stats["gol_home_ft"], errors='coerce') + pd.to_numeric(df_home_team_stats["gol_away_ft"], errors='coerce')
+                    df_over_ft = calcola_over_goals(df_home_team_stats, "tot_goals_ft", "FT")
+                    if not df_over_ft.empty:
+                        st.dataframe(df_over_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                    else: st.info("Nessun dato per Over Goals FT.")
+                else: st.warning("Colonne gol_ft mancanti per Over Goals FT.")
+
+                # BTTS FT
+                st.markdown("#### BTTS FT")
+                df_btts_ft = calcola_btts_ft(df_home_team_stats)
+                if not df_btts_ft.empty:
+                    st.dataframe(df_btts_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per BTTS FT.")
+                
+                # To Score FT
+                st.markdown("#### To Score FT")
+                df_ts_ft = calcola_to_score(df_home_team_stats)
+                if not df_ts_ft.empty:
+                    st.dataframe(df_ts_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per To Score FT.")
+
+                # Clean Sheet FT
+                st.markdown("#### Clean Sheet FT")
+                df_cs_ft = calcola_clean_sheet(df_home_team_stats)
+                if not df_cs_ft.empty:
+                    st.dataframe(df_cs_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per Clean Sheet FT.")
+
+                # Combo Markets
+                st.markdown("#### Combo Markets FT")
+                df_combo_ft = calcola_combo_stats(df_home_team_stats)
+                if not df_combo_ft.empty:
+                    st.dataframe(df_combo_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per Combo Markets FT.")
+
+            else:
+                st.info(f"Nessuna partita trovata per {selected_home} in casa con i filtri attuali.")
+
+    if selected_away != "Tutte":
+        df_away_team_stats = filtered_df[filtered_df["away_team"] == selected_away].copy()
+        with col_away_stats:
+            st.markdown(f"### Statistiche di {selected_away} (in trasferta)")
+            if not df_away_team_stats.empty:
+                st.write(f"Basato su **{len(df_away_team_stats)}** partite in trasferta.")
+
+                # Media Gol
+                st.markdown("#### Media Gol")
+                required_cols_goals = ["gol_home_ht", "gol_away_ht", "gol_home_ft", "gol_away_ft"]
+                if all(col in df_away_team_stats.columns for col in required_cols_goals):
+                    df_away_team_stats["gol_home_ht"] = pd.to_numeric(df_away_team_stats["gol_home_ht"], errors='coerce')
+                    df_away_team_stats["gol_away_ht"] = pd.to_numeric(df_away_team_stats["gol_away_ht"], errors='coerce')
+                    df_away_team_stats["gol_home_ft"] = pd.to_numeric(df_away_team_stats["gol_home_ft"], errors='coerce')
+                    df_away_team_stats["gol_away_ft"] = pd.to_numeric(df_away_team_stats["gol_away_ft"], errors='coerce')
+                    df_away_team_stats_clean = df_away_team_stats.dropna(subset=required_cols_goals)
+
+                    if not df_away_team_stats_clean.empty:
+                        avg_ht_goals = (df_away_team_stats_clean["gol_home_ht"] + df_away_team_stats_clean["gol_away_ht"]).mean()
+                        avg_ft_goals = (df_away_team_stats_clean["gol_home_ft"] + df_away_team_stats_clean["gol_away_ft"]).mean()
+                        avg_sh_goals = (df_away_team_stats_clean["gol_home_ft"] + df_away_team_stats_clean["gol_away_ft"] - df_away_team_stats_clean["gol_home_ht"] - df_away_team_stats_clean["gol_away_ht"]).mean()
+                        st.table(pd.DataFrame({
+                            "Periodo": ["HT", "FT", "SH"],
+                            "Media Gol": [f"{avg_ht_goals:.2f}", f"{avg_ft_goals:.2f}", f"{avg_sh_goals:.2f}"]
+                        }))
+                    else: st.info("Nessun dato valido per la media gol.")
+                else: st.warning("Colonne gol mancanti per la media gol.")
+
+                # WinRate
+                st.markdown("#### WinRate FT")
+                df_winrate_ft = calcola_winrate(df_away_team_stats, "risultato_ft")
+                if not df_winrate_ft.empty:
+                    st.dataframe(df_winrate_ft.style.background_gradient(cmap='RdYlGn', subset=['WinRate %']))
+                else: st.info("Nessun dato per WinRate FT.")
+
+                # Over Goals FT
+                st.markdown("#### Over Goals FT")
+                if "gol_home_ft" in df_away_team_stats.columns and "gol_away_ft" in df_away_team_stats.columns:
+                    df_away_team_stats["tot_goals_ft"] = pd.to_numeric(df_away_team_stats["gol_home_ft"], errors='coerce') + pd.to_numeric(df_away_team_stats["gol_away_ft"], errors='coerce')
+                    df_over_ft = calcola_over_goals(df_away_team_stats, "tot_goals_ft", "FT")
+                    if not df_over_ft.empty:
+                        st.dataframe(df_over_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                    else: st.info("Nessun dato per Over Goals FT.")
+                else: st.warning("Colonne gol_ft mancanti per Over Goals FT.")
+
+                # BTTS FT
+                st.markdown("#### BTTS FT")
+                df_btts_ft = calcola_btts_ft(df_away_team_stats)
+                if not df_btts_ft.empty:
+                    st.dataframe(df_btts_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per BTTS FT.")
+                
+                # To Score FT
+                st.markdown("#### To Score FT")
+                df_ts_ft = calcola_to_score(df_away_team_stats)
+                if not df_ts_ft.empty:
+                    st.dataframe(df_ts_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per To Score FT.")
+
+                # Clean Sheet FT
+                st.markdown("#### Clean Sheet FT")
+                df_cs_ft = calcola_clean_sheet(df_away_team_stats)
+                if not df_cs_ft.empty:
+                    st.dataframe(df_cs_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per Clean Sheet FT.")
+
+                # Combo Markets
+                st.markdown("#### Combo Markets FT")
+                df_combo_ft = calcola_combo_stats(df_away_team_stats)
+                if not df_combo_ft.empty:
+                    st.dataframe(df_combo_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %']))
+                else: st.info("Nessun dato per Combo Markets FT.")
+            else:
+                st.info(f"Nessuna partita trovata per {selected_away} in trasferta con i filtri attuali.")
+else:
+    st.info("Seleziona almeno una squadra (Home o Away) dai filtri a sinistra per visualizzare le statistiche dettagliate.")
+
+st.markdown("---")
+
+
 # SEZIONE 1: Analisi Timeband per Campionato
 st.subheader("1. Analisi Timeband per Campionato")
 if selected_league != "Tutte":
@@ -1519,17 +1704,10 @@ if not filtered_df.empty:
         # Controllo delle colonne prima di procedere
         required_cols_over_ht = ["gol_home_ht", "gol_away_ht"]
         if all(col in filtered_df.columns for col in required_cols_over_ht):
-            over_ht_data = []
             df_prematch_ht = filtered_df.copy()
             df_prematch_ht["tot_goals_ht"] = pd.to_numeric(df_prematch_ht["gol_home_ht"], errors='coerce') + pd.to_numeric(df_prematch_ht["gol_away_ht"], errors='coerce')
-            df_prematch_ht = df_prematch_ht.dropna(subset=["tot_goals_ht"]) # Rimuovi NaN
-            if not df_prematch_ht.empty:
-                for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                    count = (df_prematch_ht["tot_goals_ht"] > t).sum()
-                    perc = round((count / len(df_prematch_ht)) * 100, 2)
-                    odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                    over_ht_data.append([f"Over {t} HT", count, perc, odd_min])
-                df_over_ht = pd.DataFrame(over_ht_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
+            df_over_ht = calcola_over_goals(df_prematch_ht, "tot_goals_ht", "HT")
+            if not df_over_ht.empty:
                 styled_over_ht = df_over_ht.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
                 st.dataframe(styled_over_ht)
             else:
@@ -1713,17 +1891,10 @@ if not filtered_df.empty:
         st.subheader(f"Over Goals FT ({len(filtered_df)})")
         required_cols_over_ft = ["gol_home_ft", "gol_away_ft"]
         if all(col in filtered_df.columns for col in required_cols_over_ft):
-            over_ft_data = []
             df_prematch_ft = filtered_df.copy()
             df_prematch_ft["tot_goals_ft"] = pd.to_numeric(df_prematch_ft["gol_home_ft"], errors='coerce') + pd.to_numeric(df_prematch_ft["gol_away_ft"], errors='coerce')
-            df_prematch_ft = df_prematch_ft.dropna(subset=["tot_goals_ft"]) # Rimuovi NaN
-            if not df_prematch_ft.empty:
-                for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                    count = (df_prematch_ft["tot_goals_ft"] > t).sum()
-                    perc = round((count / len(df_prematch_ft)) * 100, 2)
-                    odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                    over_ft_data.append([f"Over {t} FT", count, perc, odd_min])
-                df_over_ft = pd.DataFrame(over_ft_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
+            df_over_ft = calcola_over_goals(df_prematch_ft, "tot_goals_ft", "FT")
+            if not df_over_ft.empty:
                 styled_over_ft = df_over_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
                 st.dataframe(styled_over_ft)
             else:
@@ -1867,9 +2038,9 @@ with st.expander("Mostra Analisi Dinamica (Minuto/Risultato)"):
         # Assicurati che ht_results esista e non sia vuoto
         ht_results_to_show = sorted(df["risultato_ht"].dropna().unique()) if "risultato_ht" in df.columns else []
         risultati_correnti = st.multiselect("Risultato corrente al minuto iniziale",
-                                            ht_results_to_show,
-                                            default=["0-0"] if "0-0" in ht_results_to_show else [],
-                                            key="dynamic_current_results")
+                                             ht_results_to_show,
+                                             default=["0-0"] if "0-0" in ht_results_to_show else [],
+                                             key="dynamic_current_results")
 
         partite_target = []
         for _, row in filtered_df.iterrows():
@@ -1942,32 +2113,18 @@ with st.expander("Mostra Analisi Dinamica (Minuto/Risultato)"):
             
             with col1:
                 st.subheader(f"Over Goals HT (Dinamica) ({len(df_target)})")
-                over_ht_data_dynamic = []
-                df_target_goals_ht_clean = df_target_goals.dropna(subset=["tot_goals_ht"])
-                if not df_target_goals_ht_clean.empty:
-                    for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                        count = (df_target_goals_ht_clean["tot_goals_ht"] > t).sum()
-                        perc = round((count / len(df_target_goals_ht_clean)) * 100, 2)
-                        odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                        over_ht_data_dynamic.append([f"Over {t} HT", count, perc, odd_min])
-                    df_over_ht_dynamic = pd.DataFrame(over_ht_data_dynamic, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
+                df_over_ht_dynamic = calcola_over_goals(df_target_goals, "tot_goals_ht", "HT")
+                if not df_over_ht_dynamic.empty:
                     styled_over_ht_dynamic = df_over_ht_dynamic.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
                     st.dataframe(styled_over_ht_dynamic)
                 else: st.info("Nessun dato valido.")
             
             with col2:
                 st.subheader(f"Over Goals FT (Dinamica) ({len(df_target)})")
-                over_ft_data = []
-                df_target_goals_ft_clean = df_target_goals.dropna(subset=["tot_goals_ft"])
-                if not df_target_goals_ft_clean.empty:
-                    for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                        count = (df_target_goals_ft_clean["tot_goals_ft"] > t).sum()
-                        perc = round((count / len(df_target_goals_ft_clean)) * 100, 2)
-                        odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                        over_ft_data.append([f"Over {t} FT", count, perc, odd_min])
-                    df_over_ft = pd.DataFrame(over_ft_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
-                    styled_over_ft = df_over_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
-                    st.dataframe(styled_over_ft)
+                df_over_ft_dynamic = calcola_over_goals(df_target_goals, "tot_goals_ft", "FT")
+                if not df_over_ft_dynamic.empty:
+                    styled_over_ft_dynamic = df_over_ft_dynamic.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
+                    st.dataframe(styled_over_ft_dynamic)
                 else: st.info("Nessun dato valido.")
             
             # BTTS
@@ -2227,31 +2384,17 @@ if "home_team" in df.columns and "away_team" in df.columns:
 
                 with col1:
                     st.subheader(f"Over Goals HT H2H ({len(h2h_df)})")
-                    over_ht_data = []
-                    df_h2h_goals_ht_clean = df_h2h_goals.dropna(subset=["tot_goals_ht"])
-                    if not df_h2h_goals_ht_clean.empty:
-                        for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                            count = (df_h2h_goals_ht_clean["tot_goals_ht"] > t).sum()
-                            perc = round((count / len(df_h2h_goals_ht_clean)) * 100, 2)
-                            odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                            over_ht_data.append([f"Over {t} HT", count, perc, odd_min])
-                        df_over_ht = pd.DataFrame(over_ht_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
-                        styled_over_ht = df_over_ht.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
+                    df_over_ht_h2h = calcola_over_goals(df_h2h_goals, "tot_goals_ht", "HT H2H")
+                    if not df_over_ht_h2h.empty:
+                        styled_over_ht = df_over_ht_h2h.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
                         st.dataframe(styled_over_ht)
                     else: st.info("Nessun dato.")
 
                 with col2:
                     st.subheader(f"Over Goals FT H2H ({len(h2h_df)})")
-                    over_ft_data = []
-                    df_h2h_goals_ft_clean = df_h2h_goals.dropna(subset=["tot_goals_ft"])
-                    if not df_h2h_goals_ft_clean.empty:
-                        for t in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-                            count = (df_h2h_goals_ft_clean["tot_goals_ft"] > t).sum()
-                            perc = round((count / len(df_h2h_goals_ft_clean)) * 100, 2)
-                            odd_min = round(100 / perc, 2) if perc > 0 else "-"
-                            over_ft_data.append([f"Over {t} FT", count, perc, odd_min])
-                        df_over_ft = pd.DataFrame(over_ft_data, columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
-                        styled_over_ft = df_over_ft.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
+                    df_over_ft_h2h = calcola_over_goals(df_h2h_goals, "tot_goals_ft", "FT H2H")
+                    if not df_over_ft_h2h.empty:
+                        styled_over_ft = df_over_ft_h2h.style.background_gradient(cmap='RdYlGn', subset=['Percentuale %'])
                         st.dataframe(styled_over_ft)
                     else: st.info("Nessun dato.")
                 
@@ -2472,4 +2615,3 @@ with st.expander("Configura e avvia il Backtest"):
                 st.metric("Odd Minima per profitto", f"{odd_minima:.2f}")
             elif numero_scommesse == 0:
                 st.info("Nessuna scommessa idonea trovata con i filtri e il mercato selezionati.")
-
