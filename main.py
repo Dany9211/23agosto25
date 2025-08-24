@@ -249,7 +249,7 @@ def calcola_first_to_score_outcome(df_to_analyze):
     df_filtered_for_goals = df_to_analyze.dropna(subset=["gol_home_ft", "gol_away_ft"])
     
     for _, row in df_filtered_for_goals.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home = [int(x) for x in gol_home_str.split(";") if x.isdigit()]
