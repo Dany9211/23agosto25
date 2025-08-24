@@ -180,7 +180,11 @@ def add_range_filter(col_name, label=None):
             except ValueError:
                 st.sidebar.warning(f"Valori non validi per {label or col_name}. Inserisci numeri.")
     else:
-        st.sidebar.info(f"La colonna '{col_name}' non è disponibile per il filtro range.")
+        # Messaggio più specifico per le colonne delle quote
+        if col_name in ["odd_home", "odd_draw", "odd_away"]:
+            st.sidebar.info(f"La colonna '{col_name}' non è stata trovata nel dataset. Controlla il nome esatto in Supabase (sensibile al maiuscolo/minuscolo).")
+        else:
+            st.sidebar.info(f"La colonna '{col_name}' non è disponibile per il filtro range.")
 
 
 st.sidebar.header("Filtri Quote")
@@ -249,7 +253,7 @@ def calcola_first_to_score_outcome(df_to_analyze):
     df_filtered_for_goals = df_to_analyze.dropna(subset=["gol_home_ft", "gol_away_ft"])
     
     for _, row in df_filtered_for_goals.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol_home", "")) # MODIFICATO
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home = [int(x) for x in gol_home_str.split(";") if x.isdigit()]
@@ -310,7 +314,7 @@ def calcola_first_to_score_next_goal_outcome(df_to_analyze):
     total_matches = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol_home", "")) # MODIFICATO
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home = sorted([int(x) for x in gol_home_str.split(";") if x.isdigit()])
@@ -1168,7 +1172,7 @@ def calcola_btts_ht(df_to_analyze):
 
     required_cols = ["gol_home_ht", "gol_away_ht"]
     if not all(col in df_to_analyze.columns for col in required_cols):
-        st.warning(f"Colonne mancanti per BTTS HT: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
+        st.warning(f"Colonne mancanti per BTTS HT Dinamico: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
         return pd.DataFrame()
 
     df_btts_ht = df_to_analyze.copy()
@@ -1232,16 +1236,17 @@ def calcola_btts_dinamico(df_to_analyze, start_min, risultati_correnti):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
 
-    required_cols = ["minutaggio_gol_home", "minutaggio_gol_away", "gol_home_ft", "gol_away_ft"] # MODIFICATO
+    required_cols = ["minutaggio_gol_home", "minutaggio_gol_away", "gol_home_ft", "gol_away_ft"]
     if not all(col in df_to_analyze.columns for col in required_cols):
         st.warning(f"Colonne mancanti per BTTS Dinamico: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
         return pd.DataFrame()
 
     total_matches = len(df_to_analyze)
     btts_si_count = 0
-    
+    no_btts_count = 0 # Inizializzazione difensiva aggiunta qui
+
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol_home", "")) # MODIFICATO
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
         
         gol_home_before = sum(1 for g in [int(x) for x in gol_home_str.split(";") if x.isdigit()] if g < start_min)
@@ -1250,44 +1255,27 @@ def calcola_btts_dinamico(df_to_analyze, start_min, risultati_correnti):
         gol_home_ft = int(row.get("gol_home_ft", 0))
         gol_away_ft = int(row.get("gol_away_ft", 0))
         
-        # Logica per BTTS SI dinamico
         btts_si = False
-        # Assumiamo che i risultati_correnti siano stati filtrati in base al minuto di inizio
-        # Questo è un esempio semplificato, la logica "dinamica" del BTTS dovrebbe considerare se ENTRAMBE le squadre hanno segnato
-        # *dopo* il minuto iniziale e dato il risultato iniziale.
-        # Ad esempio, se il risultato corrente è "0-0" e a fine partita è "1-1", allora è BTTS SI.
-        # Se il risultato corrente è "1-0" e a fine partita è "1-1", allora è BTTS SI (Away ha segnato).
         
-        # Questa logica deve essere più robusta per riflettere il BTTS *dopo* un certo minuto, dati i gol preesistenti.
-        # Per ora, la logica proposta dal tuo codice originale sembra voler verificare se il BTTS è avvenuto *a prescindere* dal risultato iniziale.
-        # Ho interpretato la tua intenzione come: "Se data una situazione iniziale (risultati_correnti), è poi successo il BTTS FT?"
-        
-        # Semplificazione: se alla fine della partita entrambe hanno segnato, è BTTS SI.
-        # Per un BTTS *dinamico* più preciso, dovremmo tenere conto del punteggio al `start_min`.
-        
-        # Per ora, la logica è basata sul risultato finale e sul fatto che entrambe le squadre abbiano segnato.
-        # La parte `risultati_correnti` nel tuo codice originale per BTTS dinamico sembrava più complessa.
-        # Cercherò di mantenerla più aderente alla semplice condizione BTTS FT per il DF filtrato.
-        
-        # Se vogliamo un BTTS che si sia verificato *dopo* il minuto start_min:
         home_scored_after_start = (gol_home_ft > gol_home_before)
         away_scored_after_start = (gol_away_ft > gol_away_before)
 
-        # Se entrambe le squadre hanno segnato almeno un gol DOPO il minuto iniziale
-        # O se una squadra aveva già segnato e l'altra segna dopo
         if (home_scored_after_start and away_scored_after_start) or \
            (gol_home_before > 0 and away_scored_after_start) or \
            (gol_away_before > 0 and home_scored_after_start):
            btts_si = True
         
-        # Se entrambi avevano già segnato al minuto start_min, il BTTS era già SI.
         if gol_home_before > 0 and gol_away_before > 0:
             btts_si = True
         
         if btts_si:
             btts_si_count += 1
 
-    btts_no_count = total_matches - btts_si_count
+    # Calcola no_btts_count solo se ci sono partite valide
+    if total_matches > 0:
+        no_btts_count = total_matches - btts_si_count
+    else:
+        no_btts_count = 0 # Assicura che sia 0 se non ci sono partite
 
     data = [
         ["BTTS SI (Dinamica)", btts_si_count, round((btts_si_count / total_matches) * 100, 2) if total_matches > 0 else 0],
@@ -1338,7 +1326,7 @@ def calcola_btts_ht_dinamico(df_to_analyze):
 def calcola_clean_sheet(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame()
-    
+
     required_cols = ["gol_home_ft", "gol_away_ft"]
     if not all(col in df_to_analyze.columns for col in required_cols):
         st.warning(f"Colonne mancanti per Clean Sheet FT: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
@@ -1885,7 +1873,7 @@ with st.expander("Mostra Analisi Dinamica (Minuto/Risultato)"):
 
         partite_target = []
         for _, row in filtered_df.iterrows():
-            gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()] # MODIFICATO
+            gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()]
             gol_away = [int(x) for x in str(row.get("minutaggio_gol_away", "")).split(";") if x.isdigit()]
             home_fino = sum(1 for g in gol_home if g < start_min)
             away_fino = sum(1 for g in gol_away if g < start_min)
