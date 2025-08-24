@@ -310,7 +310,7 @@ def calcola_first_to_score_next_goal_outcome(df_to_analyze):
     total_matches = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home = sorted([int(x) for x in gol_home_str.split(";") if x.isdigit()])
@@ -487,15 +487,15 @@ def calcola_first_to_score_sh(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per First to Score SH.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per First to Score SH.")
         return pd.DataFrame()
 
     risultati = {"Home Team": 0, "Away Team": 0, "No Goals SH": 0}
     totale_partite = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         # Considera solo i gol segnati nel secondo tempo (minuto > 45)
@@ -525,7 +525,7 @@ def calcola_first_to_score_outcome_sh(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    required_cols = ["gol_home_ft", "gol_away_ft", "gol_home_ht", "gol_away_ht", "minutaggio_gol", "minutaggio_gol_away"]
+    required_cols = ["gol_home_ft", "gol_away_ft", "gol_home_ht", "gol_away_ht", "minutaggio_gol_home", "minutaggio_gol_away"]
     if not all(col in df_to_analyze.columns for col in required_cols):
         st.warning(f"Colonne mancanti per First to Score + Risultato Finale SH: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
         return pd.DataFrame()
@@ -548,7 +548,7 @@ def calcola_first_to_score_outcome_sh(df_to_analyze):
     total_matches_with_sh_goals = 0
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home_sh = [int(x) for x in gol_home_str.split(";") if x.isdigit() and int(x) > 45]
@@ -591,8 +591,8 @@ def calcola_first_to_score_next_goal_outcome_sh(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per First to Score + Prossimo Gol SH.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per First to Score + Prossimo Gol SH.")
         return pd.DataFrame()
 
     risultati = {
@@ -606,7 +606,7 @@ def calcola_first_to_score_next_goal_outcome_sh(df_to_analyze):
     total_matches = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home_sh = sorted([int(x) for x in gol_home_str.split(";") if x.isdigit() and int(x) > 45])
@@ -812,15 +812,15 @@ def calcola_first_to_score(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per First to Score.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per First to Score.")
         return pd.DataFrame()
 
     risultati = {"Home Team": 0, "Away Team": 0, "No Goals": 0}
     totale_partite = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         gol_home = [int(x) for x in gol_home_str.split(";") if x.isdigit()]
@@ -850,15 +850,15 @@ def calcola_first_to_score_ht(df_to_analyze):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per First to Score HT.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per First to Score HT.")
         return pd.DataFrame()
 
     risultati = {"Home Team": 0, "Away Team": 0, "No Goals": 0}
     totale_partite = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
 
         # Considera solo i gol segnati nel primo tempo (minuto <= 45)
@@ -933,8 +933,8 @@ def mostra_distribuzione_timeband(df_to_analyze):
         st.warning("Il DataFrame per l'analisi a 15 minuti è vuoto.")
         return
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per la distribuzione Timeband.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per la distribuzione Timeband.")
         return
 
     intervalli = [(0, 15), (16, 30), (31, 45), (46, 60), (61, 75), (76, 90), (91, 150)]
@@ -944,7 +944,7 @@ def mostra_distribuzione_timeband(df_to_analyze):
     for (start, end), label in zip(intervalli, label_intervalli):
         partite_con_gol = 0
         for _, row in df_to_analyze.iterrows():
-            gol_home = [int(x) for x in str(row.get("minutaggio_gol", "")).split(";") if x.isdigit()]
+            gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()]
             gol_away = [int(x) for x in str(row.get("minutaggio_gol_away", "")).split(";") if x.isdigit()]
             if any(start <= g <= end for g in gol_home + gol_away):
                 partite_con_gol += 1
@@ -961,8 +961,8 @@ def mostra_distribuzione_timeband_5min(df_to_analyze):
         st.warning("Il DataFrame per l'analisi a 5 minuti è vuoto.")
         return
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per la distribuzione Timeband 5min.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per la distribuzione Timeband 5min.")
         return
 
     intervalli = [(0,5), (6,10), (11,15), (16,20), (21,25), (26,30), (31,35), (36,40), (41,45), (46,50), (51,55), (56,60), (61,65), (66,70), (71,75), (76,80), (81,85), (86,90), (91, 150)]
@@ -972,7 +972,7 @@ def mostra_distribuzione_timeband_5min(df_to_analyze):
     for (start, end), label in zip(intervalli, label_intervalli):
         partite_con_gol = 0
         for _, row in df_to_analyze.iterrows():
-            gol_home = [int(x) for x in str(row.get("minutaggio_gol", "")).split(";") if x.isdigit()]
+            gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()]
             gol_away = [int(x) for x in str(row.get("minutaggio_gol_away", "")).split(";") if x.isdigit()]
             if any(start <= g <= end for g in gol_home + gol_away):
                 partite_con_gol += 1
@@ -988,15 +988,15 @@ def calcola_next_goal(df_to_analyze, start_min, end_min):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Esito", "Conteggio", "Percentuale %", "Odd Minima"])
     
-    if "minutaggio_gol" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
-        st.warning("Colonne 'minutaggio_gol' o 'minutaggio_gol_away' mancanti per Next Goal.")
+    if "minutaggio_gol_home" not in df_to_analyze.columns or "minutaggio_gol_away" not in df_to_analyze.columns:
+        st.warning("Colonne 'minutaggio_gol_home' o 'minutaggio_gol_away' mancanti per Next Goal.")
         return pd.DataFrame()
 
     risultati = {"Prossimo Gol: Home": 0, "Prossimo Gol: Away": 0, "Nessun prossimo gol": 0}
     totale_partite = len(df_to_analyze)
 
     for _, row in df_to_analyze.iterrows():
-        gol_home = [int(x) for x in str(row.get("minutaggio_gol", "")).split(";") if x.isdigit()]
+        gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()]
         gol_away = [int(x) for x in str(row.get("minutaggio_gol_away", "")).split(";") if x.isdigit()]
 
         next_home_goal = min([g for g in gol_home if start_min <= g <= end_min] or [float('inf')])
@@ -1232,7 +1232,7 @@ def calcola_btts_dinamico(df_to_analyze, start_min, risultati_correnti):
     if df_to_analyze.empty:
         return pd.DataFrame(columns=["Mercato", "Conteggio", "Percentuale %", "Odd Minima"])
 
-    required_cols = ["minutaggio_gol", "minutaggio_gol_away", "gol_home_ft", "gol_away_ft"]
+    required_cols = ["minutaggio_gol_home", "minutaggio_gol_away", "gol_home_ft", "gol_away_ft"]
     if not all(col in df_to_analyze.columns for col in required_cols):
         st.warning(f"Colonne mancanti per BTTS Dinamico: {', '.join([col for col in required_cols if col not in df_to_analyze.columns])}")
         return pd.DataFrame()
@@ -1241,7 +1241,7 @@ def calcola_btts_dinamico(df_to_analyze, start_min, risultati_correnti):
     btts_si_count = 0
     
     for _, row in df_to_analyze.iterrows():
-        gol_home_str = str(row.get("minutaggio_gol", ""))
+        gol_home_str = str(row.get("minutaggio_gol_home", ""))
         gol_away_str = str(row.get("minutaggio_gol_away", ""))
         
         gol_home_before = sum(1 for g in [int(x) for x in gol_home_str.split(";") if x.isdigit()] if g < start_min)
@@ -1885,7 +1885,7 @@ with st.expander("Mostra Analisi Dinamica (Minuto/Risultato)"):
 
         partite_target = []
         for _, row in filtered_df.iterrows():
-            gol_home = [int(x) for x in str(row.get("minutaggio_gol", "")).split(";") if x.isdigit()]
+            gol_home = [int(x) for x in str(row.get("minutaggio_gol_home", "")).split(";") if x.isdigit()]
             gol_away = [int(x) for x in str(row.get("minutaggio_gol_away", "")).split(";") if x.isdigit()]
             home_fino = sum(1 for g in gol_home if g < start_min)
             away_fino = sum(1 for g in gol_away if g < start_min)
