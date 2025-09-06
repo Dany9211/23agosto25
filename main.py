@@ -9,32 +9,65 @@ import json
 # IMPOSTAZIONI PAGINA E TITOLO
 # =========================================================================
 st.set_page_config(page_title="Analisi Dati Campionati", layout="wide")
-st.title("Filtro DB CGMBET (aggiornato per campionati_uniti_puliti.csv)")
+st.title("Filtro DB CGMBET")
 st.markdown("---")
 
 # =========================================================================
-# CARICAMENTO DATI
+# FUNZIONI DI CARICAMENTO E PRE-ELABORAZIONE DEI DATI
 # =========================================================================
 @st.cache_data
-def load_data(file_path):
+def load_data(uploaded_file):
     """
-    Carica i dati da un file CSV con un delimitatore specifico.
+    Carica i dati da un file CSV caricato dall'utente.
+    Tenta diverse strategie di parsing per gestire potenziali errori
+    e fornisce feedback specifico in caso di fallimento.
     """
-    try:
-        df = pd.read_csv(file_path, sep=';', encoding='utf-8', on_bad_lines='skip', header=0)
-        st.success(f"File CSV caricato con successo da {file_path}. Colonne: {len(df.columns)}")
-        return df
-    except Exception as e:
-        st.error(f"Errore durante la lettura del file CSV: {e}")
+    if uploaded_file is not None:
+        uploaded_file.seek(0)
+        
+        # Tentativo 1: Delimitatore ';', codifica UTF-8
+        try:
+            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', on_bad_lines='skip', header=0)
+            if not df.empty and len(df.columns) > 1:
+                st.success("File CSV caricato con successo (delimitatore ';', codifica utf-8).")
+                return df
+            uploaded_file.seek(0)
+        except Exception:
+            uploaded_file.seek(0)
+
+        # Tentativo 2: Delimitatore ';', codifica 'latin-1'
+        try:
+            df = pd.read_csv(uploaded_file, sep=';', encoding='latin-1', on_bad_lines='skip', header=0)
+            if not df.empty and len(df.columns) > 1:
+                st.success("File CSV caricato con successo (delimitatore ';', codifica latin-1).")
+                return df
+            uploaded_file.seek(0)
+        except Exception:
+            uploaded_file.seek(0)
+
+        # Fallback: Delimitatore ',', codifica UTF-8
+        try:
+            df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8', on_bad_lines='skip', header=0)
+            if not df.empty and len(df.columns) > 1:
+                st.success("File CSV caricato con successo (delimitatore ',', codifica utf-8).")
+                return df
+            uploaded_file.seek(0)
+        except Exception:
+            uploaded_file.seek(0)
+
+        st.error("Impossibile leggere il file CSV. Si prega di controllare il delimitatore e la codifica.")
         return pd.DataFrame()
 
-df = load_data("campionati_uniti_puliti.csv")
+    return pd.DataFrame()
 
-# =========================================================================
-# PULIZIA E PRE-ELABORAZIONE DEI DATI
-# =========================================================================
-if not df.empty:
-    # Mappatura dei nomi delle colonne dal file all'applicazione
+def preprocess_data(df):
+    """
+    Pre-elabora il DataFrame, mappa le colonne, converte i tipi di dato e crea nuove colonne.
+    """
+    if df.empty:
+        return df
+
+    # Mappatura dei nomi delle colonne
     column_map = {
         'date_GMT': 'Data',
         'league': 'League',
@@ -84,25 +117,24 @@ if not df.empty:
     }
     df.rename(columns=column_map, inplace=True)
 
-    # Sostituisci i valori NaN e vuoti con un valore predefinito
     df.fillna('', inplace=True)
-
-    # Gestione delle colonne numeriche con virgola come separatore decimale
+    
+    # Conversione float
     cols_to_convert_float = [
         'Odd_Home', 'Odd_Draw', 'Odd_Away', 'Odd_Over_1.5', 'Odd_Over_2.5', 'Odd_Over_3.5', 'Odd_Over_4.5', 
-        'Odd_Under_1.5', 'Odd_Under_2.5', 'Odd_Under_3.5', 'Odd_Under_4.5',
-        'BTTS_SI', 'BTTS_NO', 'xG_Home', 'xG_Away', 'xG_Finale_Home', 'xG_Finale_Away'
+        'Odd_Under_1.5', 'Odd_Under_2.5', 'Odd_Under_3.5', 'Odd_Under_4.5', 'BTTS_SI', 'BTTS_NO', 
+        'xG_Home', 'xG_Away', 'xG_Finale_Home', 'xG_Finale_Away'
     ]
     for col in cols_to_convert_float:
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace(',', '.', regex=True).replace('', np.nan).astype(float)
-
-    # Conversione della colonna 'Data' e 'Anno'
+            
+    # Conversione data
     if 'Data' in df.columns:
         df['Data'] = pd.to_datetime(df['Data'], format='%b %d %Y - %I:%M%p', errors='coerce')
         df['Anno'] = df['Data'].dt.year
     
-    # Conversione a int delle colonne goal/statistiche
+    # Conversione int
     cols_to_convert_int = [
         'Gol_Home_FT', 'Gol_Away_FT', 'Gol_Home_HT', 'Gol_Away_HT', 'Giornata', 
         'Corner_Home', 'Corner_Away', 'Tiri_Home', 'Tiri_Away', 'Tiri_in_Porta_Home', 
@@ -113,23 +145,20 @@ if not df.empty:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-    # Creazione di colonne aggiuntive per analisi
+    # Creazione colonne extra
     df['Tot_Gol_FT'] = df['Gol_Home_FT'] + df['Gol_Away_FT']
     df['Tot_Gol_HT'] = df['Gol_Home_HT'] + df['Gol_Away_HT']
     df['Tot_Gol_2T'] = df['Tot_Gol_FT'] - df['Tot_Gol_HT']
     df['Gol_Casa_2T'] = df['Gol_Home_FT'] - df['Gol_Home_HT']
     df['Gol_Trasferta_2T'] = df['Gol_Away_FT'] - df['Gol_Away_HT']
-    
-    # Creazione delle colonne di risultato in formato testuale/numerico
     df['Risultato_FT_Numerico'] = np.where(df['Gol_Home_FT'] > df['Gol_Away_FT'], 1, np.where(df['Gol_Home_FT'] < df['Gol_Away_FT'], 2, 'X'))
     df['Risultato_HT_Numerico'] = np.where(df['Gol_Home_HT'] > df['Gol_Away_HT'], 1, np.where(df['Gol_Home_HT'] < df['Gol_Away_HT'], 2, 'X'))
-else:
-    st.stop()
+    
+    return df
 
 # =========================================================================
 # FUNZIONI DI BACKTEST
 # =========================================================================
-
 def esegui_backtest(df, market, strategy, stake, lay_commission=0.05):
     """
     Esegue un backtest su un DataFrame filtrato per un mercato e una strategia specifici.
@@ -158,10 +187,8 @@ def esegui_backtest(df, market, strategy, stake, lay_commission=0.05):
             continue
             
         numero_scommesse += 1
-        
         is_winning_bet = False
         
-        # Logica per il mercato e la vittoria
         if market == "1 (Casa)":
             is_winning_bet = (row['Gol_Home_FT'] > row['Gol_Away_FT'])
         elif market == "X (Pareggio)":
@@ -182,7 +209,6 @@ def esegui_backtest(df, market, strategy, stake, lay_commission=0.05):
             value = float(market.split()[1])
             is_winning_bet = (row['Tot_Gol_HT'] > value)
         
-        # Applica la strategia (Back o Lay)
         if strategy == "Back":
             if is_winning_bet:
                 profit_loss += (stake * odd) - stake
@@ -224,184 +250,195 @@ def display_backtest_results(results):
     st.dataframe(df_results)
 
 # =========================================================================
-# FILTRI PER L'UTENTE
+# INTERFACCIA UTENTE
 # =========================================================================
-st.sidebar.header("Filtri Dati")
+uploaded_file = st.sidebar.file_uploader("Carica il tuo file CSV", type=["csv"])
 
-# Filtro per League
-if 'League' in df.columns:
-    unique_leagues = sorted(df['League'].unique())
-    selected_leagues = st.sidebar.multiselect('Seleziona Campionato', unique_leagues)
-    if selected_leagues:
-        df = df[df['League'].isin(selected_leagues)]
+if uploaded_file is None:
+    st.info("Per iniziare, carica un file CSV dalla barra laterale.")
+else:
+    df = load_data(uploaded_file)
+    df = preprocess_data(df)
 
-# Filtro per anno
-if 'Anno' in df.columns:
-    unique_years = sorted(df['Anno'].unique(), reverse=True)
-    selected_years = st.sidebar.multiselect('Seleziona Anno', unique_years, default=unique_years)
-    if selected_years:
-        df = df[df['Anno'].isin(selected_years)]
-
-# Filtri per squadre
-unique_teams = sorted(pd.concat([df['Home_Team'], df['Away_Team']]).unique())
-selected_home_team = st.sidebar.multiselect('Seleziona Squadra di Casa', unique_teams)
-selected_away_team = st.sidebar.multiselect('Seleziona Squadra in Trasferta', unique_teams)
-
-if selected_home_team:
-    df = df[df['Home_Team'].isin(selected_home_team)]
-if selected_away_team:
-    df = df[df['Away_Team'].isin(selected_away_team)]
-
-# Filtri avanzati per gol e quote
-st.sidebar.subheader("Filtri per Risultato e Goal")
-selected_ft_result = st.sidebar.multiselect('Filtro Risultato Finale', ['1', 'X', '2'])
-if selected_ft_result:
-    df = df[df['Risultato_FT_Numerico'].isin(selected_ft_result)]
-
-selected_ht_result = st.sidebar.multiselect('Filtro Risultato Primo Tempo', ['1', 'X', '2'])
-if selected_ht_result:
-    df = df[df['Risultato_HT_Numerico'].isin(selected_ht_result)]
-
-# Filtri Over/Under FT
-st.sidebar.subheader("Filtri Over/Under FT")
-over_options = [f"Over {x}.5" for x in range(5)]
-under_options = [f"Under {x}.5" for x in range(5)]
-selected_overs = st.sidebar.multiselect("Seleziona Over", over_options)
-selected_unders = st.sidebar.multiselect("Seleziona Under", under_options)
-
-for opt in selected_overs:
-    val = float(opt.split()[1])
-    df = df[df['Tot_Gol_FT'] > val]
-for opt in selected_unders:
-    val = float(opt.split()[1])
-    df = df[df['Tot_Gol_FT'] < val]
-    
-# Filtri per quote
-st.sidebar.subheader("Filtri per Quote")
-odd_filters = {
-    'Odd_Home': st.sidebar.slider('Odd Casa', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-    'Odd_Draw': st.sidebar.slider('Odd Pareggio', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-    'Odd_Away': st.sidebar.slider('Odd Trasferta', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-    'Odd_Over_2.5': st.sidebar.slider('Odd Over 2.5', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
-    'BTTS_SI': st.sidebar.slider('Odd BTTS SI', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
-}
-for col, val_range in odd_filters.items():
-    if col in df.columns:
-        df = df[(df[col] >= val_range[0]) & (df[col] <= val_range[1])]
-
-# Filtro per goal nel primo tempo
-st.sidebar.subheader("Filtri Goal nel 1° Tempo")
-min_gol_ht = st.sidebar.slider('Min. Gol nel 1° Tempo', min_value=0, max_value=10, value=0, step=1)
-max_gol_ht = st.sidebar.slider('Max. Gol nel 1° Tempo', min_value=0, max_value=10, value=10, step=1)
-df = df[(df['Tot_Gol_HT'] >= min_gol_ht) & (df['Tot_Gol_HT'] <= max_gol_ht)]
-
-# Filtro per goal nel secondo tempo
-st.sidebar.subheader("Filtri Goal nel 2° Tempo")
-min_gol_2t = st.sidebar.slider('Min. Gol nel 2° Tempo', min_value=0, max_value=10, value=0, step=1)
-max_gol_2t = st.sidebar.slider('Max. Gol nel 2° Tempo', min_value=0, max_value=10, value=10, step=1)
-df = df[(df['Tot_Gol_2T'] >= min_gol_2t) & (df['Tot_Gol_2T'] <= max_gol_2t)]
-
-# =========================================================================
-# MAIN DASHBOARD E ANALISI
-# =========================================================================
-if not df.empty:
-    st.write(f"### Dati Filtrati ({len(df)} partite)")
-    st.dataframe(df)
-    
-    st.download_button(
-        label="Scarica i dati filtrati",
-        data=df.to_csv(index=False),
-        file_name='dati_filtrati.csv',
-        mime='text/csv',
-    )
-    
-    st.markdown("---")
-    
-    # === Analisi Statistiche ===
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Analisi Risultato Finale")
-        if not df.empty:
-            ft_results = df['Risultato_FT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
-            ft_results.rename(columns={'index': 'Risultato'}, inplace=True)
-            st.dataframe(ft_results)
-        else:
-            st.warning("Nessun dato filtrato.")
-
-    with col2:
-        st.subheader("Analisi Risultato Primo Tempo")
-        if not df.empty:
-            ht_results = df['Risultato_HT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
-            ht_results.rename(columns={'index': 'Risultato'}, inplace=True)
-            st.dataframe(ht_results)
-        else:
-            st.warning("Nessun dato filtrato.")
-            
-    st.markdown("---")
-
-    # === Backtest Automatico ===
-    st.subheader("Backtest Automatico su Tutti i Mercati")
-    stake = st.number_input(
-        "Stake per scommessa", 
-        min_value=1.0, 
-        value=1.0, 
-        step=0.5, 
-        key="auto_bt_stake"
-    )
-
-    all_markets = [
-        "1 (Casa)", "X (Pareggio)", "2 (Trasferta)",
-        "BTTS SI FT", "BTTS NO FT",
-        "Over 1.5 FT", "Over 2.5 FT", "Over 3.5 FT", "Over 4.5 FT",
-        "Under 1.5 FT", "Under 2.5 FT", "Under 3.5 FT", "Under 4.5 FT",
-    ]
-    strategies = ["Back", "Lay"]
-    
-    results = []
     if not df.empty:
-        for mkt in all_markets:
-            for strat in strategies:
-                res = esegui_backtest(df, mkt, strat, stake)
-                if res:
-                    results.append(res)
-    
-    display_backtest_results(results)
+        # =========================================================================
+        # FILTRI PER L'UTENTE
+        # =========================================================================
+        st.sidebar.header("Filtri Dati")
 
-    st.markdown("---")
+        # Filtro per League
+        if 'League' in df.columns:
+            unique_leagues = sorted(df['League'].unique())
+            selected_leagues = st.sidebar.multiselect('Seleziona Campionato', unique_leagues)
+            if selected_leagues:
+                df = df[df['League'].isin(selected_leagues)]
 
-    # === Creazione di Pattern ===
-    st.subheader("Crea e Salva il Tuo Pattern")
-    pattern_name = st.text_input("Nome del tuo pattern:", "Pattern Personalizzato")
-    
-    if st.button("Salva Pattern"):
-        pattern_details = {
-            "Nome": pattern_name,
-            "Filtri Applicati": {
-                "Campionati": selected_leagues if 'selected_leagues' in locals() else 'Tutti',
-                "Anni": selected_years if 'selected_years' in locals() else 'Tutti',
-                "Squadre Casa": selected_home_team if 'selected_home_team' in locals() else 'Tutte',
-                "Squadre Trasferta": selected_away_team if 'selected_away_team' in locals() else 'Tutte',
-                "Risultato FT": selected_ft_result,
-                "Risultato HT": selected_ht_result,
-                "Over FT": selected_overs,
-                "Under FT": selected_unders,
-                "Odd Casa": odd_filters['Odd_Home'],
-                "Odd Pareggio": odd_filters['Odd_Draw'],
-                "Odd Trasferta": odd_filters['Odd_Away'],
-                "Odd Over 2.5": odd_filters['Odd_Over_2.5'],
-                "Odd BTTS SI": odd_filters['BTTS_SI'],
-                "Min Gol HT": min_gol_ht,
-                "Max Gol HT": max_gol_ht,
-                "Min Gol 2T": min_gol_2t,
-                "Max Gol 2T": max_gol_2t,
-            },
-            "Risultati Backtest": results
+        # Filtro per anno
+        if 'Anno' in df.columns:
+            unique_years = sorted(df['Anno'].unique(), reverse=True)
+            selected_years = st.sidebar.multiselect('Seleziona Anno', unique_years, default=unique_years)
+            if selected_years:
+                df = df[df['Anno'].isin(selected_years)]
+
+        # Filtri per squadre
+        unique_teams = sorted(pd.concat([df['Home_Team'], df['Away_Team']]).unique())
+        selected_home_team = st.sidebar.multiselect('Seleziona Squadra di Casa', unique_teams)
+        selected_away_team = st.sidebar.multiselect('Seleziona Squadra in Trasferta', unique_teams)
+
+        if selected_home_team:
+            df = df[df['Home_Team'].isin(selected_home_team)]
+        if selected_away_team:
+            df = df[df['Away_Team'].isin(selected_away_team)]
+
+        # Filtri avanzati per gol e quote
+        st.sidebar.subheader("Filtri per Risultato e Goal")
+        selected_ft_result = st.sidebar.multiselect('Filtro Risultato Finale', ['1', 'X', '2'])
+        if selected_ft_result:
+            df = df[df['Risultato_FT_Numerico'].isin(selected_ft_result)]
+
+        selected_ht_result = st.sidebar.multiselect('Filtro Risultato Primo Tempo', ['1', 'X', '2'])
+        if selected_ht_result:
+            df = df[df['Risultato_HT_Numerico'].isin(selected_ht_result)]
+
+        # Filtri Over/Under FT
+        st.sidebar.subheader("Filtri Over/Under FT")
+        over_options = [f"Over {x}.5" for x in range(5)]
+        under_options = [f"Under {x}.5" for x in range(5)]
+        selected_overs = st.sidebar.multiselect("Seleziona Over", over_options)
+        selected_unders = st.sidebar.multiselect("Seleziona Under", under_options)
+
+        for opt in selected_overs:
+            val = float(opt.split()[1])
+            df = df[df['Tot_Gol_FT'] > val]
+        for opt in selected_unders:
+            val = float(opt.split()[1])
+            df = df[df['Tot_Gol_FT'] < val]
+            
+        # Filtri per quote
+        st.sidebar.subheader("Filtri per Quote")
+        odd_filters = {
+            'Odd_Home': st.sidebar.slider('Odd Casa', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
+            'Odd_Draw': st.sidebar.slider('Odd Pareggio', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
+            'Odd_Away': st.sidebar.slider('Odd Trasferta', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
+            'Odd_Over_2.5': st.sidebar.slider('Odd Over 2.5', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
+            'BTTS_SI': st.sidebar.slider('Odd BTTS SI', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
         }
+        for col, val_range in odd_filters.items():
+            if col in df.columns:
+                df = df[(df[col] >= val_range[0]) & (df[col] <= val_range[1])]
+
+        # Filtro per goal nel primo tempo
+        st.sidebar.subheader("Filtri Goal nel 1° Tempo")
+        min_gol_ht = st.sidebar.slider('Min. Gol nel 1° Tempo', min_value=0, max_value=10, value=0, step=1)
+        max_gol_ht = st.sidebar.slider('Max. Gol nel 1° Tempo', min_value=0, max_value=10, value=10, step=1)
+        df = df[(df['Tot_Gol_HT'] >= min_gol_ht) & (df['Tot_Gol_HT'] <= max_gol_ht)]
+
+        # Filtro per goal nel secondo tempo
+        st.sidebar.subheader("Filtri Goal nel 2° Tempo")
+        min_gol_2t = st.sidebar.slider('Min. Gol nel 2° Tempo', min_value=0, max_value=10, value=0, step=1)
+        max_gol_2t = st.sidebar.slider('Max. Gol nel 2° Tempo', min_value=0, max_value=10, value=10, step=1)
+        df = df[(df['Tot_Gol_2T'] >= min_gol_2t) & (df['Tot_Gol_2T'] <= max_gol_2t)]
+
+        # =========================================================================
+        # MAIN DASHBOARD E ANALISI
+        # =========================================================================
+        st.write(f"### Dati Filtrati ({len(df)} partite)")
+        st.dataframe(df)
         
-        # Salva il pattern in un file
-        pattern_file_path = f"{pattern_name.replace(' ', '_').replace('.', '')}.json"
-        with open(pattern_file_path, "w") as f:
-            json.dump(pattern_details, f, indent=4)
+        st.download_button(
+            label="Scarica i dati filtrati",
+            data=df.to_csv(index=False),
+            file_name='dati_filtrati.csv',
+            mime='text/csv',
+        )
         
-        st.success(f"Pattern '{pattern_name}' salvato con successo in {pattern_file_path}!")
+        st.markdown("---")
+        
+        # === Analisi Statistiche ===
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Analisi Risultato Finale")
+            if not df.empty:
+                ft_results = df['Risultato_FT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
+                ft_results.rename(columns={'index': 'Risultato'}, inplace=True)
+                st.dataframe(ft_results)
+            else:
+                st.warning("Nessun dato filtrato.")
+
+        with col2:
+            st.subheader("Analisi Risultato Primo Tempo")
+            if not df.empty:
+                ht_results = df['Risultato_HT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
+                ht_results.rename(columns={'index': 'Risultato'}, inplace=True)
+                st.dataframe(ht_results)
+            else:
+                st.warning("Nessun dato filtrato.")
+                
+        st.markdown("---")
+
+        # === Backtest Automatico ===
+        st.subheader("Backtest Automatico su Tutti i Mercati")
+        stake = st.number_input(
+            "Stake per scommessa", 
+            min_value=1.0, 
+            value=1.0, 
+            step=0.5, 
+            key="auto_bt_stake"
+        )
+
+        all_markets = [
+            "1 (Casa)", "X (Pareggio)", "2 (Trasferta)",
+            "BTTS SI FT", "BTTS NO FT",
+            "Over 1.5 FT", "Over 2.5 FT", "Over 3.5 FT", "Over 4.5 FT",
+            "Under 1.5 FT", "Under 2.5 FT", "Under 3.5 FT", "Under 4.5 FT",
+        ]
+        strategies = ["Back", "Lay"]
+        
+        results = []
+        if not df.empty:
+            for mkt in all_markets:
+                for strat in strategies:
+                    res = esegui_backtest(df, mkt, strat, stake)
+                    if res:
+                        results.append(res)
+        
+        display_backtest_results(results)
+
+        st.markdown("---")
+
+        # === Creazione di Pattern ===
+        st.subheader("Crea e Salva il Tuo Pattern")
+        pattern_name = st.text_input("Nome del tuo pattern:", "Pattern Personalizzato")
+        
+        if st.button("Salva Pattern"):
+            pattern_details = {
+                "Nome": pattern_name,
+                "Filtri Applicati": {
+                    "Campionati": selected_leagues if 'selected_leagues' in locals() else 'Tutti',
+                    "Anni": selected_years if 'selected_years' in locals() else 'Tutti',
+                    "Squadre Casa": selected_home_team if 'selected_home_team' in locals() else 'Tutte',
+                    "Squadre Trasferta": selected_away_team if 'selected_away_team' in locals() else 'Tutte',
+                    "Risultato FT": selected_ft_result,
+                    "Risultato HT": selected_ht_result,
+                    "Over FT": selected_overs,
+                    "Under FT": selected_unders,
+                    "Odd Casa": odd_filters['Odd_Home'],
+                    "Odd Pareggio": odd_filters['Odd_Draw'],
+                    "Odd Trasferta": odd_filters['Odd_Away'],
+                    "Odd Over 2.5": odd_filters['Odd_Over_2.5'],
+                    "Odd BTTS SI": odd_filters['BTTS_SI'],
+                    "Min Gol HT": min_gol_ht,
+                    "Max Gol HT": max_gol_ht,
+                    "Min Gol 2T": min_gol_2t,
+                    "Max Gol 2T": max_gol_2t,
+                },
+                "Risultati Backtest": results
+            }
+            
+            # Salva il pattern in un file
+            pattern_file_path = f"{pattern_name.replace(' ', '_').replace('.', '')}.json"
+            with open(pattern_file_path, "w") as f:
+                json.dump(pattern_details, f, indent=4)
+            
+            st.success(f"Pattern '{pattern_name}' salvato con successo in {pattern_file_path}!")
 
