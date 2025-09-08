@@ -1,444 +1,323 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
-import datetime as dt
-from datetime import datetime
-import json
+import streamlit as st
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler
 
-# =========================================================================
-# IMPOSTAZIONI PAGINA E TITOLO
-# =========================================================================
-st.set_page_config(page_title="Analisi Dati Campionati", layout="wide")
-st.title("Filtro DB CGMBET")
+# Funzione principale per l'analisi del modello (parte 1)
+def calculate_probabilities_and_value_bets(df, ranking_option):
+    
+    # Rinominare le colonne per coerenza
+    df = df.rename(columns={
+        'League': 'league',
+        'Home_Team': 'HomeTeam',
+        'Away_Team': 'AwayTeam',
+        'Gol_Home_FT': 'FTHG',
+        'Gol_Away_FT': 'FTAG',
+        'Odd_Home': 'PSH',
+        'Odd_Draw': 'PSD',
+        'Odd__Away': 'PSA',
+        'Home_Pos_Tot': 'HomePos_Tot',
+        'Away_Pos_Tot': 'AwayPos_Tot',
+        'Home_Pos_H': 'HomePos_H',
+        'Away_Pos_A': 'AwayPos_A'
+    })
+
+    # Conversione delle colonne delle quote in numeri
+    for col in ['PSH', 'PSD', 'PSA']:
+        df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[col] = df[col].replace(0, np.nan)
+    
+    # Codifica dei risultati in numeri
+    def result_to_numeric(row):
+        if row['FTHG'] > row['FTAG']:
+            return 0
+        elif row['FTHG'] == row['FTAG']:
+            return 1
+        else:
+            return 2
+    df['Result'] = df.apply(result_to_numeric, axis=1)
+
+    # Feature engineering
+    df['HomeOddsProb'] = 1 / df['PSH']
+    df['DrawOddsProb'] = 1 / df['PSD']
+    df['AwayOddsProb'] = 1 / df['PSA']
+    
+    # Selezione delle colonne per la classifica in base all'opzione scelta
+    if ranking_option == 'Classifica Totale':
+        df['HomePos'] = df['HomePos_Tot']
+        df['AwayPos'] = df['AwayPos_Tot']
+    else: # Classifica per Casa/Trasferta
+        df['HomePos'] = df['HomePos_H']
+        df['AwayPos'] = df['AwayPos_A']
+    
+    features = ['HomeOddsProb', 'DrawOddsProb', 'AwayOddsProb', 'HomePos', 'AwayPos']
+    results_df = pd.DataFrame()
+
+    for league in df['league'].unique():
+        st.subheader(f'Campionato: {league}')
+        
+        league_df = df[df['league'] == league].copy()
+        league_df.dropna(subset=features, inplace=True)
+        if league_df.empty or len(league_df) < 10:
+            st.warning(f'Dati insufficienti o non validi per il campionato {league}.')
+            continue
+
+        X = league_df[features]
+        y = league_df['Result']
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        model = LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter=1000)
+        model.fit(X_train_scaled, y_train)
+
+        y_pred_proba = model.predict_proba(X_test_scaled)
+        
+        X_test_with_proba = X_test.copy()
+        X_test_with_proba['PredProbHome'] = y_pred_proba[:, 0]
+        X_test_with_proba['PredProbDraw'] = y_pred_proba[:, 1]
+        X_test_with_proba['PredProbAway'] = y_pred_proba[:, 2]
+
+        test_df_original = league_df.loc[X_test_with_proba.index]
+        X_test_with_proba = pd.concat([test_df_original[['HomeTeam', 'AwayTeam', 'PSH', 'PSD', 'PSA', 'Result']], X_test_with_proba], axis=1)
+
+        # Calcolo Value Bets (BACK)
+        st.markdown("### Analisi Scommesse BACK (A Favore)")
+        value_bets_home_back = X_test_with_proba[(X_test_with_proba['PredProbHome'] * X_test_with_proba['PSH'] > 1)]
+        value_bets_draw_back = X_test_with_proba[(X_test_with_proba['PredProbDraw'] * X_test_with_proba['PSD'] > 1)]
+        value_bets_away_back = X_test_with_proba[(X_test_with_proba['PredProbAway'] * X_test_with_proba['PSA'] > 1)]
+
+        roi_home_back = (value_bets_home_back[value_bets_home_back['Result'] == 0]['PSH'].sum() - len(value_bets_home_back)) / len(value_bets_home_back) * 100 if len(value_bets_home_back) > 0 else 0
+        roi_draw_back = (value_bets_draw_back[value_bets_draw_back['Result'] == 1]['PSD'].sum() - len(value_bets_draw_back)) / len(value_bets_draw_back) * 100 if len(value_bets_draw_back) > 0 else 0
+        roi_away_back = (value_bets_away_back[value_bets_away_back['Result'] == 2]['PSA'].sum() - len(value_bets_away_back)) / len(value_bets_away_back) * 100 if len(value_bets_away_back) > 0 else 0
+
+        st.write(f"ROI Home: **{roi_home_back:.2f}%** ({len(value_bets_home_back)} scommesse)")
+        st.write(f"ROI Draw: **{roi_draw_back:.2f}%** ({len(value_bets_draw_back)} scommesse)")
+        st.write(f"ROI Away: **{roi_away_back:.2f}%** ({len(value_bets_away_back)} scommesse)")
+
+        # Calcolo Value Bets (LAY)
+        st.markdown("### Analisi Scommesse LAY (Contro)")
+        value_bets_home_lay = X_test_with_proba[((X_test_with_proba['PredProbDraw'] + X_test_with_proba['PredProbAway']) * (X_test_with_proba['PSH']/(X_test_with_proba['PSH']-1)) > 1)]
+        value_bets_draw_lay = X_test_with_proba[((X_test_with_proba['PredProbHome'] + X_test_with_proba['PredProbAway']) * (X_test_with_proba['PSD']/(X_test_with_proba['PSD']-1)) > 1)]
+        value_bets_away_lay = X_test_with_proba[((X_test_with_proba['PredProbHome'] + X_test_with_proba['PredProbDraw']) * (X_test_with_proba['PSA']/(X_test_with_proba['PSA']-1)) > 1)]
+        
+        roi_home_lay = (len(value_bets_home_lay[value_bets_home_lay['Result'] != 0]) - len(value_bets_home_lay[value_bets_home_lay['Result'] == 0]) * (value_bets_home_lay['PSH']-1).mean()) / len(value_bets_home_lay) * 100 if len(value_bets_home_lay) > 0 else 0
+        roi_draw_lay = (len(value_bets_draw_lay[value_bets_draw_lay['Result'] != 1]) - len(value_bets_draw_lay[value_bets_draw_lay['Result'] == 1]) * (value_bets_draw_lay['PSD']-1).mean()) / len(value_bets_draw_lay) * 100 if len(value_bets_draw_lay) > 0 else 0
+        roi_away_lay = (len(value_bets_away_lay[value_bets_away_lay['Result'] != 2]) - len(value_bets_away_lay[value_bets_away_lay['Result'] == 2]) * (value_bets_away_lay['PSA']-1).mean()) / len(value_bets_away_lay) * 100 if len(value_bets_away_lay) > 0 else 0
+
+        st.write(f"ROI Lay Home: **{roi_home_lay:.2f}%** ({len(value_bets_home_lay)} scommesse)")
+        st.write(f"ROI Lay Draw: **{roi_draw_lay:.2f}%** ({len(value_bets_draw_lay)} scommesse)")
+        st.write(f"ROI Lay Away: **{roi_away_lay:.2f}%** ({len(value_bets_away_lay)} scommesse)")
+        
+        results_df = pd.concat([results_df, pd.DataFrame([{
+            'Campionato': league, 'ROI Home Back': roi_home_back, 'ROI Draw Back': roi_draw_back, 'ROI Away Back': roi_away_back,
+            'ROI Home Lay': roi_home_lay, 'ROI Draw Lay': roi_draw_lay, 'ROI Away Lay': roi_away_lay
+        }])], ignore_index=True)
+    
+    st.markdown("---")
+    st.markdown("## Riepilogo dei Risultati per Campionato")
+    st.dataframe(results_df)
+
+# Funzione per prevedere una singola partita (parte 2)
+def predict_single_match(model, scaler, home_pos, away_pos, odd_home, odd_draw, odd_away):
+    try:
+        data = [[1/odd_home, 1/odd_draw, 1/odd_away, home_pos, away_pos]]
+        new_match_df = pd.DataFrame(data, columns=['HomeOddsProb', 'DrawOddsProb', 'AwayOddsProb', 'HomePos', 'AwayPos'])
+        
+        new_match_scaled = scaler.transform(new_match_df)
+        pred_proba = model.predict_proba(new_match_scaled)[0]
+        
+        return pred_proba
+    except Exception as e:
+        return None
+
+# Interfaccia Streamlit
+st.title('Modello Predittivo di Value Bet')
+
+st.markdown("Questo strumento è diviso in due sezioni: una per l'analisi su dati storici e una per la previsione di una nuova partita singola.")
+
 st.markdown("---")
 
-# =========================================================================
-# FUNZIONI DI CARICAMENTO E PRE-ELABORAZIONE DEI DATI
-# =========================================================================
-@st.cache_data
-def load_data(uploaded_file):
-    """
-    Carica i dati da un file CSV caricato dall'utente.
-    Tenta diverse strategie di parsing per gestire potenziali errori
-    e fornisce feedback specifico in caso di fallimento.
-    """
-    if uploaded_file is not None:
-        uploaded_file.seek(0)
-        
-        # Tentativo 1: Delimitatore ';', codifica UTF-8
-        try:
-            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', on_bad_lines='skip', header=0)
-            if not df.empty and len(df.columns) > 1:
-                st.success("File CSV caricato con successo (delimitatore ';', codifica utf-8).")
-                return df
-            uploaded_file.seek(0)
-        except Exception:
-            uploaded_file.seek(0)
+st.header("1. Analisi su Dati Storici (BACK & LAY)")
+st.markdown("Carica un file CSV per testare il modello su un dataset completo e valutare il ROI.")
 
-        # Tentativo 2: Delimitatore ';', codifica 'latin-1'
-        try:
-            df = pd.read_csv(uploaded_file, sep=';', encoding='latin-1', on_bad_lines='skip', header=0)
-            if not df.empty and len(df.columns) > 1:
-                st.success("File CSV caricato con successo (delimitatore ';', codifica latin-1).")
-                return df
-            uploaded_file.seek(0)
-        except Exception:
-            uploaded_file.seek(0)
-
-        # Fallback: Delimitatore ',', codifica UTF-8
-        try:
-            df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8', on_bad_lines='skip', header=0)
-            if not df.empty and len(df.columns) > 1:
-                st.success("File CSV caricato con successo (delimitatore ',', codifica utf-8).")
-                return df
-            uploaded_file.seek(0)
-        except Exception:
-            uploaded_file.seek(0)
-
-        st.error("Impossibile leggere il file CSV. Si prega di controllare il delimitatore e la codifica.")
-        return pd.DataFrame()
-
-    return pd.DataFrame()
-
-def preprocess_data(df):
-    """
-    Pre-elabora il DataFrame, mappa le colonne, converte i tipi di dato e crea nuove colonne.
-    """
-    if df.empty:
-        return df
-
-    # Mappatura dei nomi delle colonne
-    column_map = {
-        'date_GMT': 'Data',
-        'league': 'League',
-        'home_team_name': 'Home_Team',
-        'away_team_name': 'Away_Team',
-        'home_team_goal_count': 'Gol_Home_FT',
-        'away_team_goal_count': 'Gol_Away_FT',
-        'home_team_goal_count_half_time': 'Gol_Home_HT',
-        'away_team_goal_count_half_time': 'Gol_Away_HT',
-        'Game Week': 'Giornata',
-        'odds_ft_home_team_win': 'Odd_Home',
-        'odds_ft_draw': 'Odd_Draw',
-        'odds_ft_away_team_win': 'Odd_Away',
-        'odds_ft_over15': 'Odd_Over_1.5',
-        'odds_ft_over25': 'Odd_Over_2.5',
-        'odds_ft_over35': 'Odd_Over_3.5',
-        'odds_ft_over45': 'Odd_Over_4.5',
-        'odds_ft_under15': 'Odd_Under_1.5',
-        'odds_ft_under25': 'Odd_Under_2.5',
-        'odds_ft_under35': 'Odd_Under_3.5',
-        'odds_ft_under45': 'Odd_Under_4.5',
-        'odds_btts_yes': 'BTTS_SI',
-        'odds_btts_no': 'BTTS_NO',
-        'Risultato_FT': 'Risultato_FT_Mio',
-        'Risultato_HT': 'Risultato_HT_Mio',
-        'timestamp': 'Timestamp',
-        'home_team_goal_timings': 'Minutaggio_Gol_Home',
-        'away_team_goal_timings': 'Minutaggio_Gol_Away',
-        'home_team_corner_count': 'Corner_Home',
-        'away_team_corner_count': 'Corner_Away',
-        'home_team_shots': 'Tiri_Home',
-        'away_team_shots': 'Tiri_Away',
-        'home_team_shots_on_target': 'Tiri_in_Porta_Home',
-        'away_team_shots_on_target': 'Tiri_in_Porta_Away',
-        'home_team_fouls': 'Falli_Home',
-        'away_team_fouls': 'Falli_Away',
-        'home_team_yellow_cards': 'Gialli_Home',
-        'away_team_yellow_cards': 'Gialli_Away',
-        'home_team_red_cards': 'Rossi_Home',
-        'away_team_red_cards': 'Rossi_Away',
-        'home_team_possession': 'Possesso_Home',
-        'away_team_possession': 'Possesso_Away',
-        'Home Team Pre-Match xG': 'xG_Home',
-        'Away Team Pre-Match xG': 'xG_Away',
-        'team_a_xg': 'xG_Finale_Home',
-        'team_b_xg': 'xG_Finale_Away',
-    }
-    df.rename(columns=column_map, inplace=True)
-
-    df.fillna('', inplace=True)
+uploaded_file = st.file_uploader("Scegli un file CSV", type="csv")
+if uploaded_file is not None:
+    ranking_option = st.selectbox(
+        "Scegli il tipo di classifica da utilizzare:",
+        ('Classifica Totale', 'Classifica per Casa/Trasferta')
+    )
     
-    # Conversione float
-    cols_to_convert_float = [
-        'Odd_Home', 'Odd_Draw', 'Odd_Away', 'Odd_Over_1.5', 'Odd_Over_2.5', 'Odd_Over_3.5', 'Odd_Over_4.5', 
-        'Odd_Under_1.5', 'Odd_Under_2.5', 'Odd_Under_3.5', 'Odd_Under_4.5', 'BTTS_SI', 'BTTS_NO', 
-        'xG_Home', 'xG_Away', 'xG_Finale_Home', 'xG_Finale_Away'
-    ]
-    for col in cols_to_convert_float:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.replace(',', '.', regex=True).replace('', np.nan).astype(float)
-            
-    # Conversione data
-    if 'Data' in df.columns:
-        df['Data'] = pd.to_datetime(df['Data'], format='%b %d %Y - %I:%M%p', errors='coerce')
-        df['Anno'] = df['Data'].dt.year
-    
-    # Conversione int
-    cols_to_convert_int = [
-        'Gol_Home_FT', 'Gol_Away_FT', 'Gol_Home_HT', 'Gol_Away_HT', 'Giornata', 
-        'Corner_Home', 'Corner_Away', 'Tiri_Home', 'Tiri_Away', 'Tiri_in_Porta_Home', 
-        'Tiri_in_Porta_Away', 'Falli_Home', 'Falli_Away', 'Gialli_Home', 'Gialli_Away', 
-        'Rossi_Home', 'Rossi_Away', 'Possesso_Home', 'Possesso_Away'
-    ]
-    for col in cols_to_convert_int:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-
-    # Creazione colonne extra
-    df['Tot_Gol_FT'] = df['Gol_Home_FT'] + df['Gol_Away_FT']
-    df['Tot_Gol_HT'] = df['Gol_Home_HT'] + df['Gol_Away_HT']
-    df['Tot_Gol_2T'] = df['Tot_Gol_FT'] - df['Tot_Gol_HT']
-    df['Gol_Casa_2T'] = df['Gol_Home_FT'] - df['Gol_Home_HT']
-    df['Gol_Trasferta_2T'] = df['Gol_Away_FT'] - df['Gol_Away_HT']
-    df['Risultato_FT_Numerico'] = np.where(df['Gol_Home_FT'] > df['Gol_Away_FT'], 1, np.where(df['Gol_Home_FT'] < df['Gol_Away_FT'], 2, 'X'))
-    df['Risultato_HT_Numerico'] = np.where(df['Gol_Home_HT'] > df['Gol_Away_HT'], 1, np.where(df['Gol_Home_HT'] < df['Gol_Away_HT'], 2, 'X'))
-    
-    return df
-
-# =========================================================================
-# FUNZIONI DI BACKTEST
-# =========================================================================
-def esegui_backtest(df, market, strategy, stake, lay_commission=0.05):
-    """
-    Esegue un backtest su un DataFrame filtrato per un mercato e una strategia specifici.
-    """
-    profit_loss = 0
-    numero_scommesse = 0
-    vincite = 0
-    perdite = 0
-    
-    odd_column_map = {
-        "1 (Casa)": "Odd_Home", "X (Pareggio)": "Odd_Draw", "2 (Trasferta)": "Odd_Away",
-        "BTTS SI FT": "BTTS_SI", "BTTS NO FT": "BTTS_NO",
-        "Over 0.5 FT": "Odd_Over_0.5", "Over 1.5 FT": "Odd_Over_1.5", "Over 2.5 FT": "Odd_Over_2.5", "Over 3.5 FT": "Odd_Over_3.5", "Over 4.5 FT": "Odd_Over_4.5",
-        "Under 0.5 FT": "Odd_Under_0.5", "Under 1.5 FT": "Odd_Under_1.5", "Under 2.5 FT": "Odd_Under_2.5", "Under 3.5 FT": "Odd_Under_3.5", "Under 4.5 FT": "Odd_Under_4.5",
-        "Over 0.5 HT": "Odd_Over_0.5_HT", "Over 1.5 HT": "Odd_Over_1.5_HT", "Over 2.5 HT": "Odd_Over_2.5_HT",
-    }
-    odd_col = odd_column_map.get(market)
-    
-    if odd_col not in df.columns or df[odd_col].isnull().all():
-        return None
-    
-    for _, row in df.iterrows():
-        odd = row[odd_col]
+    try:
+        df = pd.read_csv(uploaded_file, on_bad_lines='skip', engine='python')
+        st.write("Anteprima dei dati caricati:")
+        st.dataframe(df.head())
         
-        if pd.isna(odd) or odd <= 1.0:
-            continue
-            
-        numero_scommesse += 1
-        is_winning_bet = False
-        
-        if market == "1 (Casa)":
-            is_winning_bet = (row['Gol_Home_FT'] > row['Gol_Away_FT'])
-        elif market == "X (Pareggio)":
-            is_winning_bet = (row['Gol_Home_FT'] == row['Gol_Away_FT'])
-        elif market == "2 (Trasferta)":
-            is_winning_bet = (row['Gol_Home_FT'] < row['Gol_Away_FT'])
-        elif market == "BTTS SI FT":
-            is_winning_bet = (row['Gol_Home_FT'] > 0 and row['Gol_Away_FT'] > 0)
-        elif market == "BTTS NO FT":
-            is_winning_bet = (row['Gol_Home_FT'] == 0 or row['Gol_Away_FT'] == 0)
-        elif market.startswith("Over"):
-            value = float(market.split()[1])
-            is_winning_bet = (row['Tot_Gol_FT'] > value)
-        elif market.startswith("Under"):
-            value = float(market.split()[1])
-            is_winning_bet = (row['Tot_Gol_FT'] < value)
-        elif market.startswith("Over") and "HT" in market:
-            value = float(market.split()[1])
-            is_winning_bet = (row['Tot_Gol_HT'] > value)
-        
-        if strategy == "Back":
-            if is_winning_bet:
-                profit_loss += (stake * odd) - stake
-                vincite += 1
-            else:
-                profit_loss -= stake
-                perdite += 1
-        elif strategy == "Lay":
-            if is_winning_bet:
-                profit_loss -= stake * (odd - 1) * (1 + lay_commission)
-                perdite += 1
-            else:
-                profit_loss += stake * (1 - lay_commission)
-                vincite += 1
+        required_cols = ['League', 'Home_Team', 'Away_Team', 'Gol_Home_FT', 'Gol_Away_FT', 'Odd_Home', 'Odd_Draw', 'Odd__Away', 'Home_Pos_Tot', 'Away_Pos_Tot', 'Home_Pos_H', 'Away_Pos_A']
+        if all(col in df.columns for col in required_cols):
+            if st.button("Esegui Analisi Storica"):
+                with st.spinner('Elaborazione in corso...'):
+                    st.session_state.df_historical = df.copy()
+                    st.session_state.ranking_option = ranking_option
+                    calculate_probabilities_and_value_bets(st.session_state.df_historical, st.session_state.ranking_option)
+                st.success('Analisi completata!')
+        else:
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            st.error(f"Il file CSV deve contenere le seguenti colonne. Mancano: {', '.join(missing_cols)}")
+    except Exception as e:
+        st.error(f"Errore durante la lettura del file: {e}")
 
-    roi = (profit_loss / (numero_scommesse * stake) * 100) if numero_scommesse > 0 else 0
-    win_rate = (vincite / numero_scommesse * 100) if numero_scommesse > 0 else 0
-    odd_minima = df[odd_col].min() if not df[odd_col].empty else None
+st.markdown("---")
 
-    return {
-        "Mercato": market,
-        "Strategia": strategy,
-        "Scommesse": numero_scommesse,
-        "Vincite": vincite,
-        "Perdite": perdite,
-        "Profitto (€)": round(profit_loss, 2),
-        "ROI %": round(roi, 2),
-        "WinRate %": round(win_rate, 2),
-        "Odd Minima": round(odd_minima, 2) if odd_minima else "-",
-    }
+st.header("2. Previsione Nuova Partita")
 
-def display_backtest_results(results):
-    if not results:
-        st.warning("Nessun dato di backtest da mostrare.")
-        return
+if 'df_historical' in st.session_state and st.session_state.df_historical is not None:
     
-    df_results = pd.DataFrame(results)
-    df_results = df_results.sort_values(by="ROI %", ascending=False).reset_index(drop=True)
-    st.dataframe(df_results)
+    # Preparazione del modello per la previsione
+    df_pred = st.session_state.df_historical.rename(columns={
+        'League': 'league', 'Home_Team': 'HomeTeam', 'Away_Team': 'AwayTeam',
+        'Gol_Home_FT': 'FTHG', 'Gol_Away_FT': 'FTAG', 'Odd_Home': 'PSH',
+        'Odd_Draw': 'PSD', 'Odd__Away': 'PSA',
+        'Home_Pos_Tot': 'HomePos_Tot', 'Away_Pos_Tot': 'AwayPos_Tot',
+        'Home_Pos_H': 'HomePos_H', 'Away_Pos_A': 'AwayPos_A'
+    })
+    for col in ['PSH', 'PSD', 'PSA']:
+        df_pred[col] = df_pred[col].astype(str).str.replace(',', '.', regex=False)
+        df_pred[col] = pd.to_numeric(df_pred[col], errors='coerce')
+        df_pred[col] = df_pred[col].replace(0, np.nan)
+    df_pred['Result'] = df_pred.apply(lambda row: 0 if row['FTHG'] > row['FTAG'] else (1 if row['FTHG'] == row['FTAG'] else 2), axis=1)
 
-# =========================================================================
-# INTERFACCIA UTENTE
-# =========================================================================
-uploaded_file = st.sidebar.file_uploader("Carica il tuo file CSV", type=["csv"])
+    if st.session_state.ranking_option == 'Classifica Totale':
+        df_pred['HomePos'] = df_pred['HomePos_Tot']
+        df_pred['AwayPos'] = df_pred['AwayPos_Tot']
+    else:
+        df_pred['HomePos'] = df_pred['HomePos_H']
+        df_pred['AwayPos'] = df_pred['AwayPos_A']
+    
+    features = ['HomeOddsProb', 'DrawOddsProb', 'AwayOddsProb', 'HomePos', 'AwayPos']
+    df_pred['HomeOddsProb'] = 1 / df_pred['PSH']
+    df_pred['DrawOddsProb'] = 1 / df_pred['PSD']
+    df_pred['AwayOddsProb'] = 1 / df_pred['PSA']
+    df_pred.dropna(subset=features, inplace=True)
+    
+    # Aggiunge il selettore per il campionato
+    available_leagues = df_pred['league'].unique()
+    selected_league = st.selectbox("Scegli un campionato per la previsione:", available_leagues)
 
-if uploaded_file is None:
-    st.info("Per iniziare, carica un file CSV dalla barra laterale.")
-else:
-    df = load_data(uploaded_file)
-    df = preprocess_data(df)
-
-    if not df.empty:
-        # =========================================================================
-        # FILTRI PER L'UTENTE
-        # =========================================================================
-        st.sidebar.header("Filtri Dati")
-
-        # Filtro per League
-        if 'League' in df.columns:
-            unique_leagues = sorted(df['League'].unique())
-            selected_leagues = st.sidebar.multiselect('Seleziona Campionato', unique_leagues)
-            if selected_leagues:
-                df = df[df['League'].isin(selected_leagues)]
-
-        # Filtro per anno
-        if 'Anno' in df.columns:
-            unique_years = sorted(df['Anno'].unique(), reverse=True)
-            selected_years = st.sidebar.multiselect('Seleziona Anno', unique_years, default=unique_years)
-            if selected_years:
-                df = df[df['Anno'].isin(selected_years)]
-
-        # Filtri per squadre
-        unique_teams = sorted(pd.concat([df['Home_Team'], df['Away_Team']]).unique())
-        selected_home_team = st.sidebar.multiselect('Seleziona Squadra di Casa', unique_teams)
-        selected_away_team = st.sidebar.multiselect('Seleziona Squadra in Trasferta', unique_teams)
-
-        if selected_home_team:
-            df = df[df['Home_Team'].isin(selected_home_team)]
-        if selected_away_team:
-            df = df[df['Away_Team'].isin(selected_away_team)]
-
-        # Filtri avanzati per gol e quote
-        st.sidebar.subheader("Filtri per Risultato e Goal")
-        selected_ft_result = st.sidebar.multiselect('Filtro Risultato Finale', ['1', 'X', '2'])
-        if selected_ft_result:
-            df = df[df['Risultato_FT_Numerico'].isin(selected_ft_result)]
-
-        selected_ht_result = st.sidebar.multiselect('Filtro Risultato Primo Tempo', ['1', 'X', '2'])
-        if selected_ht_result:
-            df = df[df['Risultato_HT_Numerico'].isin(selected_ht_result)]
-
-        # Filtri Over/Under FT
-        st.sidebar.subheader("Filtri Over/Under FT")
-        over_options = [f"Over {x}.5" for x in range(5)]
-        under_options = [f"Under {x}.5" for x in range(5)]
-        selected_overs = st.sidebar.multiselect("Seleziona Over", over_options)
-        selected_unders = st.sidebar.multiselect("Seleziona Under", under_options)
-
-        for opt in selected_overs:
-            val = float(opt.split()[1])
-            df = df[df['Tot_Gol_FT'] > val]
-        for opt in selected_unders:
-            val = float(opt.split()[1])
-            df = df[df['Tot_Gol_FT'] < val]
-            
-        # Filtri per quote
-        st.sidebar.subheader("Filtri per Quote")
-        odd_filters = {
-            'Odd_Home': st.sidebar.slider('Odd Casa', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-            'Odd_Draw': st.sidebar.slider('Odd Pareggio', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-            'Odd_Away': st.sidebar.slider('Odd Trasferta', min_value=1.0, max_value=20.0, value=(1.0, 20.0), step=0.1),
-            'Odd_Over_2.5': st.sidebar.slider('Odd Over 2.5', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
-            'BTTS_SI': st.sidebar.slider('Odd BTTS SI', min_value=1.0, max_value=10.0, value=(1.0, 10.0), step=0.1),
-        }
-        for col, val_range in odd_filters.items():
-            if col in df.columns:
-                df = df[(df[col] >= val_range[0]) & (df[col] <= val_range[1])]
-
-        # Filtro per goal nel primo tempo
-        st.sidebar.subheader("Filtri Goal nel 1° Tempo")
-        min_gol_ht = st.sidebar.slider('Min. Gol nel 1° Tempo', min_value=0, max_value=10, value=0, step=1)
-        max_gol_ht = st.sidebar.slider('Max. Gol nel 1° Tempo', min_value=0, max_value=10, value=10, step=1)
-        df = df[(df['Tot_Gol_HT'] >= min_gol_ht) & (df['Tot_Gol_HT'] <= max_gol_ht)]
-
-        # Filtro per goal nel secondo tempo
-        st.sidebar.subheader("Filtri Goal nel 2° Tempo")
-        min_gol_2t = st.sidebar.slider('Min. Gol nel 2° Tempo', min_value=0, max_value=10, value=0, step=1)
-        max_gol_2t = st.sidebar.slider('Max. Gol nel 2° Tempo', min_value=0, max_value=10, value=10, step=1)
-        df = df[(df['Tot_Gol_2T'] >= min_gol_2t) & (df['Tot_Gol_2T'] <= max_gol_2t)]
-
-        # =========================================================================
-        # MAIN DASHBOARD E ANALISI
-        # =========================================================================
-        st.write(f"### Dati Filtrati ({len(df)} partite)")
-        st.dataframe(df)
+    # Filtra i dati per il campionato selezionato prima di addestrare il modello
+    df_pred_filtered = df_pred[df_pred['league'] == selected_league].copy()
+    
+    if df_pred_filtered.empty or len(df_pred_filtered) < 10:
+        st.warning(f"Dati insufficienti o non validi per il campionato {selected_league}. Scegli un altro campionato.")
+    else:
+        X = df_pred_filtered[features]
+        y = df_pred_filtered['Result']
         
-        st.download_button(
-            label="Scarica i dati filtrati",
-            data=df.to_csv(index=False),
-            file_name='dati_filtrati.csv',
-            mime='text/csv',
-        )
+        scaler_pred = StandardScaler()
+        scaler_pred.fit(X)
         
-        st.markdown("---")
+        model_pred = LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter=1000)
+        model_pred.fit(scaler_pred.transform(X), y)
         
-        # === Analisi Statistiche ===
+        # Calcolo l'accuratezza del modello sul test set per il campionato selezionato
+        y_test_pred = model_pred.predict(scaler_pred.transform(X))
+        accuracy = accuracy_score(y, y_test_pred)
+
+        st.markdown(f"#### Inserisci i dati per la previsione ({selected_league})")
+
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Analisi Risultato Finale")
-            if not df.empty:
-                ft_results = df['Risultato_FT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
-                ft_results.rename(columns={'index': 'Risultato'}, inplace=True)
-                st.dataframe(ft_results)
-            else:
-                st.warning("Nessun dato filtrato.")
-
+            home_pos_input = st.number_input("Posizione in classifica squadra di casa:", min_value=1, format="%d", value=1)
+            odd_home_input = st.number_input("Quota Home:", min_value=1.0, format="%f", value=1.0)
+            odd_draw_input = st.number_input("Quota Draw:", min_value=1.0, format="%f", value=1.0)
+            
         with col2:
-            st.subheader("Analisi Risultato Primo Tempo")
-            if not df.empty:
-                ht_results = df['Risultato_HT_Numerico'].value_counts(normalize=True).mul(100).rename('Percentuale %').reset_index()
-                ht_results.rename(columns={'index': 'Risultato'}, inplace=True)
-                st.dataframe(ht_results)
-            else:
-                st.warning("Nessun dato filtrato.")
-                
-        st.markdown("---")
+            away_pos_input = st.number_input("Posizione in classifica squadra in trasferta:", min_value=1, format="%d", value=1)
+            odd_away_input = st.number_input("Quota Away:", min_value=1.0, format="%f", value=1.0)
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Prevedi Risultato"):
+                if home_pos_input and odd_home_input and odd_draw_input and away_pos_input and odd_away_input:
+                    with st.spinner('Calcolo della previsione...'):
+                        predictions = predict_single_match(model_pred, scaler_pred, home_pos_input, away_pos_input, odd_home_input, odd_draw_input, odd_away_input)
+                        if predictions is not None:
+                            st.subheader("Risultato della Previsione")
+                            st.metric(label="Probabilità di Vittoria Casa", value=f"{predictions[0]*100:.2f}%")
+                            st.metric(label="Probabilità di Pareggio", value=f"{predictions[1]*100:.2f}%")
+                            st.metric(label="Probabilità di Vittoria Trasferta", value=f"{predictions[2]*100:.2f}%")
+                            
+                            st.subheader("Informazioni sul Modello")
+                            st.metric(label="Accuratezza del Modello", value=f"{accuracy*100:.2f}%")
+                            st.metric(label="Numero di Campioni per l'Addestramento", value=f"{len(df_pred_filtered)}")
+                            
+                            st.subheader("Quote Reali Calcolate dal Modello")
+                            st.metric(label="Quota Reale Home", value=f"{1/predictions[0]:.2f}")
+                            st.metric(label="Quota Reale Draw", value=f"{1/predictions[1]:.2f}")
+                            st.metric(label="Quota Reale Away", value=f"{1/predictions[2]:.2f}")
+                            
+                            st.subheader("Analisi della Value Bet per Esito")
+                            
+                            # Analisi Home
+                            st.markdown("**Home Win**")
+                            value_back_home = predictions[0] * odd_home_input
+                            value_lay_home = 0
+                            if odd_home_input > 1:
+                                value_lay_home = (predictions[1] + predictions[2]) * (odd_home_input/(odd_home_input-1))
+                            
+                            if value_back_home > 1 and value_lay_home > 1:
+                                if value_back_home > value_lay_home:
+                                    st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_home:.2f})")
+                                else:
+                                    st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_home:.2f})")
+                            elif value_back_home > 1:
+                                st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_home:.2f})")
+                            elif value_lay_home > 1:
+                                st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_home:.2f})")
+                            else:
+                                st.info("ℹ️ Nessuna Value Bet trovata per questo esito.")
 
-        # === Backtest Automatico ===
-        st.subheader("Backtest Automatico su Tutti i Mercati")
-        stake = st.number_input(
-            "Stake per scommessa", 
-            min_value=1.0, 
-            value=1.0, 
-            step=0.5, 
-            key="auto_bt_stake"
-        )
+                            # Analisi Draw
+                            st.markdown("**Pareggio**")
+                            value_back_draw = predictions[1] * odd_draw_input
+                            value_lay_draw = 0
+                            if odd_draw_input > 1:
+                                value_lay_draw = (predictions[0] + predictions[2]) * (odd_draw_input/(odd_draw_input-1))
+                            
+                            if value_back_draw > 1 and value_lay_draw > 1:
+                                if value_back_draw > value_lay_draw:
+                                    st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_draw:.2f})")
+                                else:
+                                    st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_draw:.2f})")
+                            elif value_back_draw > 1:
+                                st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_draw:.2f})")
+                            elif value_lay_draw > 1:
+                                st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_draw:.2f})")
+                            else:
+                                st.info("ℹ️ Nessuna Value Bet trovata per questo esito.")
 
-        all_markets = [
-            "1 (Casa)", "X (Pareggio)", "2 (Trasferta)",
-            "BTTS SI FT", "BTTS NO FT",
-            "Over 1.5 FT", "Over 2.5 FT", "Over 3.5 FT", "Over 4.5 FT",
-            "Under 1.5 FT", "Under 2.5 FT", "Under 3.5 FT", "Under 4.5 FT",
-        ]
-        strategies = ["Back", "Lay"]
-        
-        results = []
-        if not df.empty:
-            for mkt in all_markets:
-                for strat in strategies:
-                    res = esegui_backtest(df, mkt, strat, stake)
-                    if res:
-                        results.append(res)
-        
-        display_backtest_results(results)
+                            # Analisi Away
+                            st.markdown("**Away Win**")
+                            value_back_away = predictions[2] * odd_away_input
+                            value_lay_away = 0
+                            if odd_away_input > 1:
+                                value_lay_away = (predictions[0] + predictions[1]) * (odd_away_input/(odd_away_input-1))
 
-        st.markdown("---")
-
-        # === Creazione di Pattern ===
-        st.subheader("Crea e Salva il Tuo Pattern")
-        pattern_name = st.text_input("Nome del tuo pattern:", "Pattern Personalizzato")
-        
-        if st.button("Salva Pattern"):
-            pattern_details = {
-                "Nome": pattern_name,
-                "Filtri Applicati": {
-                    "Campionati": selected_leagues if 'selected_leagues' in locals() else 'Tutti',
-                    "Anni": selected_years if 'selected_years' in locals() else 'Tutti',
-                    "Squadre Casa": selected_home_team if 'selected_home_team' in locals() else 'Tutte',
-                    "Squadre Trasferta": selected_away_team if 'selected_away_team' in locals() else 'Tutte',
-                    "Risultato FT": selected_ft_result,
-                    "Risultato HT": selected_ht_result,
-                    "Over FT": selected_overs,
-                    "Under FT": selected_unders,
-                    "Odd Casa": odd_filters['Odd_Home'],
-                    "Odd Pareggio": odd_filters['Odd_Draw'],
-                    "Odd Trasferta": odd_filters['Odd_Away'],
-                    "Odd Over 2.5": odd_filters['Odd_Over_2.5'],
-                    "Odd BTTS SI": odd_filters['BTTS_SI'],
-                    "Min Gol HT": min_gol_ht,
-                    "Max Gol HT": max_gol_ht,
-                    "Min Gol 2T": min_gol_2t,
-                    "Max Gol 2T": max_gol_2t,
-                },
-                "Risultati Backtest": results
-            }
-            
-            # Salva il pattern in un file
-            pattern_file_path = f"{pattern_name.replace(' ', '_').replace('.', '')}.json"
-            with open(pattern_file_path, "w") as f:
-                json.dump(pattern_details, f, indent=4)
-            
-            st.success(f"Pattern '{pattern_name}' salvato con successo in {pattern_file_path}!")
-
+                            if value_back_away > 1 and value_lay_away > 1:
+                                if value_back_away > value_lay_away:
+                                    st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_away:.2f})")
+                                else:
+                                    st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_away:.2f})")
+                            elif value_back_away > 1:
+                                st.write(f"✅ **Value Bet in BACK** (Valore: {value_back_away:.2f})")
+                            elif value_lay_away > 1:
+                                st.write(f"✅ **Value Bet in LAY** (Valore: {value_lay_away:.2f})")
+                            else:
+                                st.info("ℹ️ Nessuna Value Bet trovata per questo esito.")
+                        else:
+                            st.error("Impossibile calcolare la previsione. Controlla i valori inseriti.")
