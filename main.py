@@ -424,6 +424,13 @@ if df.empty:
 
 st.success("File caricato con successo!")
 
+# Get latest date from the entire dataset for display
+latest_date_full_dataset = "N/A"
+if 'date' in df.columns and not df['date'].isnull().all():
+    latest_date_full_dataset = df['date'].max().strftime('%d-%m-%Y')
+
+st.markdown(f"**Ultima data del dataset: {latest_date_full_dataset}**")
+
 # ---------- Sidebar Filters ----------
 st.sidebar.header("Opzioni di Filtraggio")
 if 'league' in df.columns:
@@ -560,10 +567,18 @@ else:
 
 st.subheader(f"Anteprima {analysis_title} (con filtri quota)")
 st.write(f"Righe filtrate: **{len(odds_filtered)}**")
+
+latest_date_filtered_dataset = "N/A"
+if 'date' in odds_filtered.columns and not odds_filtered['date'].isnull().all():
+    latest_date_filtered_dataset = odds_filtered['date'].max().strftime('%d-%m-%Y')
+
+st.write(f"Ultima data del campione analizzato: **{latest_date_filtered_dataset}**")
 st.dataframe(odds_filtered, use_container_width=True)
 
 # ---------- Capitolo 1: Distribuzione Gol per Timeframe — Totale (senza filtri quota) ----------
 st.markdown(f"## Capitolo 1: Distribuzione Gol per Timeframe — Totale ({len(team_filtered_df)} partite)")
+if 'date' in team_filtered_df.columns and not team_filtered_df['date'].isnull().all():
+    st.write(f"Data più recente del campione: **{team_filtered_df['date'].max().strftime('%d-%m-%Y')}**")
 req_cols = {'home_team_goal_timings','away_team_goal_timings'}
 if not req_cols.issubset(team_filtered_df.columns):
     st.info("Colonne 'home_team_goal_timings' e/o 'away_team_goal_timings' non presenti nel dataset.")
@@ -597,6 +612,8 @@ else:
 
 # ---------- Capitolo 2: Distribuzione Gol per Timeframe — Con filtri quota ----------
 st.markdown(f"## Capitolo 2: Distribuzione Gol per Timeframe — Con filtri quota ({len(odds_filtered)} partite)")
+if 'date' in odds_filtered.columns and not odds_filtered['date'].isnull().all():
+    st.write(f"Data più recente del campione: **{odds_filtered['date'].max().strftime('%d-%m-%Y')}**")
 if not req_cols.issubset(odds_filtered.columns):
     st.info("Colonne 'home_team_goal_timings' e/o 'away_team_goal_timings' non presenti nel dataset.")
 else:
@@ -710,9 +727,26 @@ with st.expander(f"Statistiche HT ({len(odds_filtered)} partite)"):
         btts_df['Odd Minima'] = btts_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(btts_df, ['Percentuale %']), use_container_width=True)
         st.markdown(f"### First to Score (HT) ({total_matches})")
+        home_first = away_first = no_goal = simultaneous = 0
         if {'home_team_goal_timings','away_team_goal_timings'}.issubset(odds_filtered.columns):
-            fts_df = compute_first_to_score_ht(odds_filtered)
-            st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
+            for _, row in odds_filtered.iterrows():
+                h_min = earliest_second_half_min(row.get('home_team_goal_timings', np.nan))
+                a_min = earliest_second_half_min(row.get('away_team_goal_timings', np.nan))
+                if h_min is None and a_min is None:
+                    no_goal += 1
+                elif h_min is not None and (a_min is None or h_min < a_min):
+                    home_first += 1
+                elif a_min is not None and (h_min is None or a_min < h_min):
+                    away_first += 1
+                else:
+                    simultaneous += 1
+            fts_sh_df = pd.DataFrame({
+                'Esito': ['Home First (SH)', 'Away First (SH)', 'No Goal (SH)', 'Stesso minuto (SH)'],
+                'Conteggio': [home_first, away_first, no_goal, simultaneous]
+            })
+            fts_sh_df['Percentuale %'] = (fts_sh_df['Conteggio'] / total_matches * 100).round(2)
+            fts_sh_df['Odd Minima'] = fts_sh_df['Percentuale %'].apply(odd_min_from_percent)
+            st.dataframe(style_table(fts_sh_df, ['Percentuale %']), use_container_width=True)
         else:
             st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
 
@@ -906,7 +940,7 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
         btts_ft_df['Odd Minima'] = btts_ft_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(btts_ft_df, ['Percentuale %']), use_container_width=True)
         st.markdown(f"### First to Score (FT) ({total_matches})")
-        if {'home_team_goal_timings','away_team_goal_timings'}.issubset(odds_filtered.columns):
+        if {'home_team_goal_timings','away_team_timings'}.issubset(odds_filtered.columns):
             fts_df = compute_first_to_score_ft(odds_filtered)
             st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
         else:
