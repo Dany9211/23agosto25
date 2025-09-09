@@ -802,4 +802,5 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
             fts_df = compute_first_to_score_ft(odds_filtered)
             st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
         else:
+
             st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
