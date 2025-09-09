@@ -336,13 +336,11 @@ def create_year_summary_table(base_df, odds_df):
     else:
         summary_df = pd.concat([base_counts, odds_counts], axis=1)
         
-    summary_df = summary_df.fillna(0)
+    summary_df = summary_df.fillna('N/A')
     
     for col in summary_df.columns:
         if 'Conteggio' in col:
             summary_df[col] = summary_df[col].astype(int)
-        if 'Data' in col:
-            summary_df[col] = summary_df[col].replace(0, 'N/A')
     
     summary_df = summary_df.reset_index()
     summary_df = summary_df.rename(columns={'anno': 'Anno'})
@@ -375,6 +373,9 @@ def load_data(uploaded_file):
     if 'status' in df.columns:
         df = df[df['status'].str.lower() != 'incomplete']
 
+    if {'giorno', 'mese', 'anno'}.issubset(df.columns) and 'date' not in df.columns:
+        df['date'] = pd.to_datetime(df[['giorno', 'mese', 'anno']].astype(str).agg('-'.join, axis=1), format='%d-%m-%Y', errors='coerce')
+
     if {'home_team_goal_count_half_time','away_team_goal_count_half_time'}.issubset(df.columns):
         def get_ht_result(row):
             if row['home_team_goal_count_half_time'] > row['away_team_goal_count_half_time']:
@@ -399,12 +400,10 @@ def load_data(uploaded_file):
     if {'home_team_goal_count','away_team_goal_count'}.issubset(df.columns):
         df['total_goals_at_full_time'] = df['home_team_goal_count'] + df['away_team_goal_count']
     
-    if 'date' in df.columns:
-        try:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce', dayfirst=True)
-            df.sort_values(by='date', ascending=True, inplace=True)
-        except Exception:
-            st.sidebar.warning("Colonna 'date' non valida. Le partite non verranno ordinate cronologicamente.")
+    if 'date' in df.columns and not df['date'].isnull().all():
+        df.sort_values(by='date', ascending=True, inplace=True)
+    else:
+        st.sidebar.warning("Colonna 'date' non valida. Le partite non verranno ordinate cronologicamente.")
 
     return df
 
@@ -424,7 +423,6 @@ if df.empty:
 
 st.success("File caricato con successo!")
 
-# Get latest date from the entire dataset for display
 latest_date_full_dataset = "N/A"
 if 'date' in df.columns and not df['date'].isnull().all():
     latest_date_full_dataset = df['date'].max().strftime('%d-%m-%Y')
@@ -940,7 +938,7 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
         btts_ft_df['Odd Minima'] = btts_ft_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(btts_ft_df, ['Percentuale %']), use_container_width=True)
         st.markdown(f"### First to Score (FT) ({total_matches})")
-        if {'home_team_goal_timings','away_team_timings'}.issubset(odds_filtered.columns):
+        if {'home_team_goal_timings','away_team_goal_timings'}.issubset(odds_filtered.columns):
             fts_df = compute_first_to_score_ft(odds_filtered)
             st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
         else:
