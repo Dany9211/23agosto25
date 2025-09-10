@@ -346,6 +346,55 @@ def create_year_summary_table(base_df, odds_df):
     summary_df = summary_df.rename(columns={'anno': 'Anno'})
     
     return summary_df
+    
+def get_last_matches_info(df, home_team, away_team):
+    """
+    Trova l'ultima data e l'avversario per l'ultima partita in casa e fuori casa
+    delle squadre selezionate.
+    """
+    info = {
+        'home_team_home_match': None,
+        'home_team_away_match': None,
+        'away_team_home_match': None,
+        'away_team_away_match': None
+    }
+
+    if 'date' in df.columns and 'home_team_name' in df.columns and 'away_team_name' in df.columns:
+        df_sorted = df.sort_values(by='date', ascending=False)
+        
+        # Ultima partita in casa della squadra di casa selezionata
+        last_home_match_home_team = df_sorted[df_sorted['home_team_name'] == home_team].iloc[0] if not df_sorted[df_sorted['home_team_name'] == home_team].empty else None
+        if last_home_match_home_team is not None:
+            info['home_team_home_match'] = {
+                'date': last_home_match_home_team['date'].strftime('%d-%m-%Y'),
+                'opponent': last_home_match_home_team['away_team_name']
+            }
+        
+        # Ultima partita fuori casa della squadra di casa selezionata
+        last_away_match_home_team = df_sorted[df_sorted['away_team_name'] == home_team].iloc[0] if not df_sorted[df_sorted['away_team_name'] == home_team].empty else None
+        if last_away_match_home_team is not None:
+            info['home_team_away_match'] = {
+                'date': last_away_match_home_team['date'].strftime('%d-%m-%Y'),
+                'opponent': last_away_match_home_team['home_team_name']
+            }
+            
+        # Ultima partita in casa della squadra in trasferta selezionata
+        last_home_match_away_team = df_sorted[df_sorted['home_team_name'] == away_team].iloc[0] if not df_sorted[df_sorted['home_team_name'] == away_team].empty else None
+        if last_home_match_away_team is not None:
+            info['away_team_home_match'] = {
+                'date': last_home_match_away_team['date'].strftime('%d-%m-%Y'),
+                'opponent': last_home_match_away_team['away_team_name']
+            }
+
+        # Ultima partita fuori casa della squadra in trasferta selezionata
+        last_away_match_away_team = df_sorted[df_sorted['away_team_name'] == away_team].iloc[0] if not df_sorted[df_sorted['away_team_name'] == away_team].empty else None
+        if last_away_match_away_team is not None:
+            info['away_team_away_match'] = {
+                'date': last_away_match_away_team['date'].strftime('%d-%m-%Y'),
+                'opponent': last_away_match_away_team['home_team_name']
+            }
+            
+    return info
 
 
 # ---------- Load ----------
@@ -555,6 +604,42 @@ odds_filtered = team_filtered_df.copy()
 for col, (mn, mx) in odds_filters.items():
     if col in odds_filtered.columns:
         odds_filtered = odds_filtered[(odds_filtered[col] >= mn) & (odds_filtered[col] <= mx)]
+
+# Dettagli ultime partite per le squadre selezionate
+if selected_home_team != 'Tutte' or selected_away_team != 'Tutte':
+    st.markdown("---")
+    st.markdown("### Dettagli Ultime Partite Selezionate")
+    
+    last_matches_info = get_last_matches_info(df, selected_home_team, selected_away_team)
+    
+    st.markdown(f"**Ultima data del dataset per la squadra di casa selezionata ({selected_home_team}):**")
+    
+    if last_matches_info['home_team_home_match']:
+        info = last_matches_info['home_team_home_match']
+        st.markdown(f"- **Ultima partita in casa:** {info['date']} vs {info['opponent']}")
+    else:
+        st.markdown("- Nessuna partita in casa trovata per la squadra di casa selezionata.")
+
+    if last_matches_info['home_team_away_match']:
+        info = last_matches_info['home_team_away_match']
+        st.markdown(f"- **Ultima partita fuori casa:** {info['date']} vs {info['opponent']}")
+    else:
+        st.markdown("- Nessuna partita fuori casa trovata per la squadra di casa selezionata.")
+
+    st.markdown(f"**Ultima data del dataset per la squadra in trasferta selezionata ({selected_away_team}):**")
+
+    if last_matches_info['away_team_home_match']:
+        info = last_matches_info['away_team_home_match']
+        st.markdown(f"- **Ultima partita in casa:** {info['date']} vs {info['opponent']}")
+    else:
+        st.markdown("- Nessuna partita in casa trovata per la squadra in trasferta selezionata.")
+        
+    if last_matches_info['away_team_away_match']:
+        info = last_matches_info['away_team_away_match']
+        st.markdown(f"- **Ultima partita fuori casa:** {info['date']} vs {info['opponent']}")
+    else:
+        st.markdown("- Nessuna partita fuori casa trovata per la squadra in trasferta selezionata.")
+    st.markdown("---")
 
 st.subheader("Riepilogo Partite per Anno")
 year_summary_df = create_year_summary_table(team_filtered_df, odds_filtered)
