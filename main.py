@@ -376,6 +376,7 @@ def load_data(uploaded_file):
     # New logic to handle 'date_GMT'
     if 'date_GMT' in df.columns:
         df['date'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y', errors='coerce').dt.date
+        df['anno'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y', errors='coerce').dt.year
     elif {'giorno', 'mese', 'anno'}.issubset(df.columns):
         df['date'] = pd.to_datetime(df[['giorno', 'mese', 'anno']].astype(str).agg('-'.join, axis=1), format='%d-%m-%Y', errors='coerce')
     else:
