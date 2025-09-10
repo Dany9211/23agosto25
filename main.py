@@ -373,7 +373,6 @@ def load_data(uploaded_file):
     if 'status' in df.columns:
         df = df[df['status'].str.lower() != 'incomplete']
 
-    # New logic to handle 'date_GMT'
     if 'date_GMT' in df.columns:
         df['date'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y', errors='coerce').dt.date
         df['anno'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y', errors='coerce').dt.year
