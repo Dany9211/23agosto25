@@ -373,8 +373,13 @@ def load_data(uploaded_file):
     if 'status' in df.columns:
         df = df[df['status'].str.lower() != 'incomplete']
 
-    if {'giorno', 'mese', 'anno'}.issubset(df.columns) and 'date' not in df.columns:
+    # New logic to handle 'date_GMT'
+    if 'date_GMT' in df.columns:
+        df['date'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y', errors='coerce').dt.date
+    elif {'giorno', 'mese', 'anno'}.issubset(df.columns):
         df['date'] = pd.to_datetime(df[['giorno', 'mese', 'anno']].astype(str).agg('-'.join, axis=1), format='%d-%m-%Y', errors='coerce')
+    else:
+        df['date'] = pd.NaT
 
     if {'home_team_goal_count_half_time','away_team_goal_count_half_time'}.issubset(df.columns):
         def get_ht_result(row):
