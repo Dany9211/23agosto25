@@ -1055,3 +1055,72 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
             st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
         else:
             st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
+
+# ---------- Capitolo 3: H2H (Scontri Diretti) ----------
+st.markdown("---")
+st.markdown("## Capitolo 3: H2H (Scontri Diretti)")
+
+if selected_home_team == 'Tutte' or selected_away_team == 'Tutte':
+    st.info("Seleziona sia una squadra di casa che una squadra in trasferta per attivare l'analisi H2H.")
+else:
+    h2h_toggle = st.checkbox("Analizza Partite Totali H2H (Home/Away)")
+    
+    h2h_df = df.copy()
+    
+    # Applica i filtri di base (campionato, anno, giornata)
+    if selected_leagues: h2h_df = h2h_df[h2h_df['league'].isin(selected_leagues)]
+    if selected_years: h2h_df = h2h_df[h2h_df['anno'].isin(selected_years)]
+    if selected_gw: h2h_df = h2h_df[(h2h_df['Game Week'] >= selected_gw[0]) & (h2h_df['Game Week'] <= selected_gw[1])]
+
+    if h2h_toggle:
+        # H2H totale: casa contro trasferta e viceversa
+        h2h_df = h2h_df[
+            ((h2h_df['home_team_name'] == selected_home_team) & (h2h_df['away_team_name'] == selected_away_team)) |
+            ((h2h_df['home_team_name'] == selected_away_team) & (h2h_df['away_team_name'] == selected_home_team))
+        ]
+        h2h_df['is_home_for_h2h'] = h2h_df['home_team_name'] == selected_home_team
+        
+    else:
+        # H2H specifico: solo quando la squadra A gioca in casa contro la squadra B
+        h2h_df = h2h_df[
+            (h2h_df['home_team_name'] == selected_home_team) & 
+            (h2h_df['away_team_name'] == selected_away_team)
+        ]
+
+    # Applica filtri quota agli scontri diretti
+    h2h_odds_filtered = h2h_df.copy()
+    for col, (mn, mx) in odds_filters.items():
+        if col in h2h_odds_filtered.columns:
+            h2h_odds_filtered = h2h_odds_filtered[(h2h_odds_filtered[col] >= mn) & (h2h_odds_filtered[col] <= mx)]
+
+    if h2h_odds_filtered.empty:
+        st.info("Nessuno scontro diretto trovato per le squadre selezionate con i filtri applicati.")
+    else:
+        st.write(f"Scontri diretti analizzati: **{len(h2h_odds_filtered)}** partite.")
+        st.dataframe(h2h_odds_filtered)
+
+        st.markdown("### Riepilogo Media Gol H2H")
+        h2h_avg_goals_summary = create_avg_goals_summary_table(h2h_odds_filtered)
+        if not h2h_avg_goals_summary.empty:
+            st.dataframe(h2h_avg_goals_summary, use_container_width=True)
+        else:
+            st.info("Dati insufficienti per il riepilogo media gol H2H.")
+
+        st.markdown("---")
+        st.markdown("### Distribuzione Gol per Timeframe H2H")
+        req_cols_h2h = {'home_team_goal_timings','away_team_goal_timings'}
+        if not req_cols_h2h.issubset(h2h_odds_filtered.columns):
+            st.info("Colonne 'home_team_goal_timings' e/o 'away_team_goal_timings' non presenti per l'analisi del timeframe H2H.")
+        else:
+            col15_h2h, col5_h2h = st.columns(2)
+            with col15_h2h:
+                st.markdown("**Ogni 15 minuti**")
+                tf_h2h_15 = timeframes_table(h2h_odds_filtered, step=15)
+                st.dataframe(style_table(tf_h2h_15, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+            with col5_h2h:
+                st.markdown("**Ogni 5 minuti (con 45+)**")
+                tf_h2h_5 = timeframes_table(h2h_odds_filtered, step=5)
+                st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+
+---
+Per un'analisi ancora più dettagliata, potremmo aggiungere una sezione che visualizza un grafico dell'andamento dei gol nel tempo per gli scontri diretti. Sarebbe utile avere un'idea visiva di quando tendono a verificarsi i gol. Ti interessa esplorare questa opzione?
