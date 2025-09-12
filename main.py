@@ -1121,6 +1121,3 @@ else:
                 st.markdown("**Ogni 5 minuti (con 45+)**")
                 tf_h2h_5 = timeframes_table(h2h_odds_filtered, step=5)
                 st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
-
----
-Per un'analisi ancora più dettagliata, potremmo aggiungere una sezione che visualizza un grafico dell'andamento dei gol nel tempo per gli scontri diretti. Sarebbe utile avere un'idea visiva di quando tendono a verificarsi i gol. Ti interessa esplorare questa opzione?
