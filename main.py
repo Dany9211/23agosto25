@@ -765,7 +765,6 @@ with colT2:
     tf_team_total_5 = timeframes_table_by_team(team_filtered_df, step=5)
     st.dataframe(style_table(tf_team_total_5, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
 
-**
     conversion_rate_table = create_conversion_rate_table(team_filtered_df)
     if not conversion_rate_table.empty:
         st.dataframe(conversion_rate_table, use_container_width=True)
@@ -811,7 +810,6 @@ with colQ2:
     tf_team_odds_5 = timeframes_table_by_team(odds_filtered, step=5)
     st.dataframe(style_table(tf_team_odds_5, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
 
-**
     conversion_rate_table_odds = create_conversion_rate_table(odds_filtered)
     if not conversion_rate_table_odds.empty:
         st.dataframe(conversion_rate_table_odds, use_container_width=True)
@@ -900,25 +898,25 @@ with st.expander(f"Statistiche HT ({len(odds_filtered)} partite)"):
         ts_df['Odd Minima'] = ts_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(ts_df, ['Percentuale %']), use_container_width=True)
 
-# --- Aggiunta: To Concede HT + Media GF/GA HT ---
-concede_home_ht = int((ht_away >= 1).sum())
-concede_away_ht = int((ht_home >= 1).sum())
-tc_ht_df = pd.DataFrame({
-    'Squadra': ['Home subisce HT', 'Away subisce HT'],
-    'Conteggio': [concede_home_ht, concede_away_ht]
-})
-tc_ht_df['Percentuale %'] = (tc_ht_df['Conteggio'] / total_matches * 100).round(2)
-tc_ht_df['Odd Minima'] = tc_ht_df['Percentuale %'].apply(odd_min_from_percent)
-st.markdown(f"### To Concede HT ({total_matches})")
-st.dataframe(style_table(tc_ht_df, ['Percentuale %']), use_container_width=True)
-
-media_ht_df = pd.DataFrame({
-    'Metrica': ['Home GF HT','Home GA HT','Away GF HT','Away GA HT'],
-    'Valore': [round(ht_home.mean(),2), round(ht_away.mean(),2), round(ht_away.mean(),2), round(ht_home.mean(),2)]
-})
-st.markdown("### Media GF/GA HT")
-st.dataframe(media_ht_df, use_container_width=True)
-
+        # --- Aggiunta: To Concede HT + Media GF/GA HT ---
+        concede_home_ht = int((ht_away >= 1).sum())
+        concede_away_ht = int((ht_home >= 1).sum())
+        tc_ht_df = pd.DataFrame({
+            'Squadra': ['Home subisce HT', 'Away subisce HT'],
+            'Conteggio': [concede_home_ht, concede_away_ht]
+        })
+        tc_ht_df['Percentuale %'] = (tc_ht_df['Conteggio'] / total_matches * 100).round(2)
+        tc_ht_df['Odd Minima'] = tc_ht_df['Percentuale %'].apply(odd_min_from_percent)
+        st.markdown(f"### To Concede HT ({total_matches})")
+        st.dataframe(style_table(tc_ht_df, ['Percentuale %']), use_container_width=True)
+        
+        media_ht_df = pd.DataFrame({
+            'Metrica': ['Home GF HT','Home GA HT','Away GF HT','Away GA HT'],
+            'Valore': [round(ht_home.mean(),2), round(ht_away.mean(),2), round(ht_away.mean(),2), round(ht_home.mean(),2)]
+        })
+        st.markdown("### Media GF/GA HT")
+        st.dataframe(media_ht_df, use_container_width=True)
+        
         st.markdown(f"### BTTS HT ({total_matches})")
         btts_yes_count = int(((ht_home >= 1) & (ht_away >= 1)).sum())
         btts_no_count = int(total_matches - btts_yes_count)
@@ -1034,25 +1032,25 @@ with st.expander(f"Statistiche SH (Secondo Tempo) ({len(odds_filtered)} partite)
         ts_sh_df['Odd Minima'] = ts_sh_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(ts_sh_df, ['Percentuale %']), use_container_width=True)
 
-# --- Aggiunta: To Concede SH + Media GF/GA SH ---
-concede_home_sh = int((sh_away >= 1).sum())
-concede_away_sh = int((sh_home >= 1).sum())
-tc_sh_df = pd.DataFrame({
-    'Squadra': ['Home subisce SH', 'Away subisce SH'],
-    'Conteggio': [concede_home_sh, concede_away_sh]
-})
-tc_sh_df['Percentuale %'] = (tc_sh_df['Conteggio'] / total_matches * 100).round(2)
-tc_sh_df['Odd Minima'] = tc_sh_df['Percentuale %'].apply(odd_min_from_percent)
-st.markdown(f"### To Concede SH ({total_matches})")
-st.dataframe(style_table(tc_sh_df, ['Percentuale %']), use_container_width=True)
-
-media_sh_df = pd.DataFrame({
-    'Metrica': ['Home GF SH','Home GA SH','Away GF SH','Away GA SH'],
-    'Valore': [round(sh_home.mean(),2), round(sh_away.mean(),2), round(sh_away.mean(),2), round(sh_home.mean(),2)]
-})
-st.markdown("### Media GF/GA SH")
-st.dataframe(media_sh_df, use_container_width=True)
-
+        # --- Aggiunta: To Concede SH + Media GF/GA SH ---
+        concede_home_sh = int((sh_away >= 1).sum())
+        concede_away_sh = int((sh_home >= 1).sum())
+        tc_sh_df = pd.DataFrame({
+            'Squadra': ['Home subisce SH', 'Away subisce SH'],
+            'Conteggio': [concede_home_sh, concede_away_sh]
+        })
+        tc_sh_df['Percentuale %'] = (tc_sh_df['Conteggio'] / total_matches * 100).round(2)
+        tc_sh_df['Odd Minima'] = tc_sh_df['Percentuale %'].apply(odd_min_from_percent)
+        st.markdown(f"### To Concede SH ({total_matches})")
+        st.dataframe(style_table(tc_sh_df, ['Percentuale %']), use_container_width=True)
+        
+        media_sh_df = pd.DataFrame({
+            'Metrica': ['Home GF SH','Home GA SH','Away GF SH','Away GA SH'],
+            'Valore': [round(sh_home.mean(),2), round(sh_away.mean(),2), round(sh_away.mean(),2), round(sh_home.mean(),2)]
+        })
+        st.markdown("### Media GF/GA SH")
+        st.dataframe(media_sh_df, use_container_width=True)
+        
         st.markdown(f"### BTTS SH ({total_matches})")
         btts_yes = int(((sh_home >= 1) & (sh_away >= 1)).sum())
         btts_no = int(total_matches - btts_yes)
@@ -1163,26 +1161,26 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
         btts_ft_df['Odd Minima'] = btts_ft_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(btts_ft_df, ['Percentuale %']), use_container_width=True)
 
-# --- Aggiunta: To Concede FT + Media GF/GA FT ---
-concede_home_ft = int((ft_away >= 1).sum())
-concede_away_ft = int((ft_home >= 1).sum())
-tc_ft_df = pd.DataFrame({
-    'Squadra': ['Home subisce FT', 'Away subisce FT'],
-    'Conteggio': [concede_home_ft, concede_away_ft]
-})
-tc_ft_df['Percentuale %'] = (tc_ft_df['Conteggio'] / total_matches * 100).round(2)
-tc_ft_df['Odd Minima'] = tc_ft_df['Percentuale %'].apply(odd_min_from_percent)
-st.markdown(f"### To Concede FT ({total_matches})")
-st.dataframe(style_table(tc_ft_df, ['Percentuale %']), use_container_width=True)
-
-media_ft_df = pd.DataFrame({
-    'Metrica': ['Home GF FT','Home GA FT','Away GF FT','Away GA FT'],
-    'Valore': [round(ft_home.mean(),2), round(ft_away.mean(),2), round(ft_away.mean(),2), round(ft_home.mean(),2)]
-})
-st.markdown("### Media GF/GA FT")
-st.dataframe(media_ft_df, use_container_width=True)
-
-st.markdown(f"### First to Score (FT) ({total_matches})")
+        # --- Aggiunta: To Concede FT + Media GF/GA FT ---
+        concede_home_ft = int((ft_away >= 1).sum())
+        concede_away_ft = int((ft_home >= 1).sum())
+        tc_ft_df = pd.DataFrame({
+            'Squadra': ['Home subisce FT', 'Away subisce FT'],
+            'Conteggio': [concede_home_ft, concede_away_ft]
+        })
+        tc_ft_df['Percentuale %'] = (tc_ft_df['Conteggio'] / total_matches * 100).round(2)
+        tc_ft_df['Odd Minima'] = tc_ft_df['Percentuale %'].apply(odd_min_from_percent)
+        st.markdown(f"### To Concede FT ({total_matches})")
+        st.dataframe(style_table(tc_ft_df, ['Percentuale %']), use_container_width=True)
+        
+        media_ft_df = pd.DataFrame({
+            'Metrica': ['Home GF FT','Home GA FT','Away GF FT','Away GA FT'],
+            'Valore': [round(ft_home.mean(),2), round(ft_away.mean(),2), round(ft_away.mean(),2), round(ft_home.mean(),2)]
+        })
+        st.markdown("### Media GF/GA FT")
+        st.dataframe(media_ft_df, use_container_width=True)
+        
+        st.markdown(f"### First to Score (FT) ({total_matches})")
 
         if {'home_team_goal_timings','away_team_goal_timings'}.issubset(odds_filtered.columns):
             fts_df = compute_first_to_score_ft(odds_filtered)
