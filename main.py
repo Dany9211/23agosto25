@@ -458,7 +458,7 @@ def get_last_matches_info(df, home_team, away_team):
             
     return info
 
-def generate_ht_stats(df, title_suffix=""):
+def generate_ht_stats(df, title_suffix="", team_1_name=None, team_2_name=None):
     if df.empty or not {'home_team_goal_count_half_time','away_team_goal_count_half_time'}.issubset(df.columns):
         st.info(f"Dati insufficienti per le statistiche HT{title_suffix}.")
         return
@@ -490,6 +490,27 @@ def generate_ht_stats(df, title_suffix=""):
     df_wr['WinRate %'] = (df_wr['Conteggio'] / total_matches * 100).round(2)
     df_wr['Odd Minima'] = df_wr['WinRate %'].apply(odd_min_from_percent)
     st.dataframe(style_table(df_wr, ['WinRate %']), use_container_width=True)
+
+    if team_1_name and team_2_name:
+        st.markdown(f"#### Gol Fatti/Subiti HT {title_suffix}")
+        
+        goals_for_t1 = (df.loc[df['home_team_name'] == team_1_name, 'home_team_goal_count_half_time'].sum() + 
+                        df.loc[df['away_team_name'] == team_1_name, 'away_team_goal_count_half_time'].sum())
+        goals_against_t1 = (df.loc[df['home_team_name'] == team_1_name, 'away_team_goal_count_half_time'].sum() + 
+                            df.loc[df['away_team_name'] == team_1_name, 'home_team_goal_count_half_time'].sum())
+        
+        goals_for_t2 = (df.loc[df['home_team_name'] == team_2_name, 'home_team_goal_count_half_time'].sum() + 
+                        df.loc[df['away_team_name'] == team_2_name, 'away_team_goal_count_half_time'].sum())
+        goals_against_t2 = (df.loc[df['home_team_name'] == team_2_name, 'away_team_goal_count_half_time'].sum() + 
+                            df.loc[df['away_team_name'] == team_2_name, 'home_team_goal_count_half_time'].sum())
+
+        gf_ga_df = pd.DataFrame({
+            'Squadra': [team_1_name, team_2_name],
+            'Gol Fatti': [goals_for_t1, goals_for_t2],
+            'Gol Subiti': [goals_against_t1, goals_against_t2]
+        })
+        st.dataframe(gf_ga_df, use_container_width=True)
+
     st.markdown(f"### Over Goals HT {title_suffix} ({total_matches})")
     goal_lines = [0.5,1.5,2.5,3.5,4.5]
     tg = df['total_goals_at_half_time']
@@ -547,7 +568,7 @@ def generate_ht_stats(df, title_suffix=""):
     else:
         st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
 
-def generate_sh_stats(df, title_suffix=""):
+def generate_sh_stats(df, title_suffix="", team_1_name=None, team_2_name=None):
     if df.empty or not {'home_team_goal_timings','away_team_goal_timings'}.issubset(df.columns):
         st.info(f"Per le statistiche SH{title_suffix} servono le colonne minuti gol.")
         return
@@ -588,6 +609,40 @@ def generate_sh_stats(df, title_suffix=""):
     df_wr_sh['WinRate %'] = (df_wr_sh['Conteggio'] / total_matches * 100).round(2)
     df_wr_sh['Odd Minima'] = df_wr_sh['WinRate %'].apply(odd_min_from_percent)
     st.dataframe(style_table(df_wr_sh, ['WinRate %']), use_container_width=True)
+    
+    if team_1_name and team_2_name:
+        st.markdown(f"#### Gol Fatti/Subiti SH {title_suffix}")
+        
+        goals_for_t1 = 0
+        goals_against_t1 = 0
+        goals_for_t2 = 0
+        goals_against_t2 = 0
+        
+        for _, row in df.iterrows():
+            hmins = minutes_second_half(row.get('home_team_goal_timings', np.nan))
+            amins = minutes_second_half(row.get('away_team_goal_timings', np.nan))
+            
+            if row['home_team_name'] == team_1_name:
+                goals_for_t1 += len(hmins)
+                goals_against_t1 += len(amins)
+            elif row['away_team_name'] == team_1_name:
+                goals_for_t1 += len(amins)
+                goals_against_t1 += len(hmins)
+
+            if row['home_team_name'] == team_2_name:
+                goals_for_t2 += len(hmins)
+                goals_against_t2 += len(amins)
+            elif row['away_team_name'] == team_2_name:
+                goals_for_t2 += len(amins)
+                goals_against_t2 += len(hmins)
+
+        gf_ga_df = pd.DataFrame({
+            'Squadra': [team_1_name, team_2_name],
+            'Gol Fatti': [goals_for_t1, goals_for_t2],
+            'Gol Subiti': [goals_against_t1, goals_against_t2]
+        })
+        st.dataframe(gf_ga_df, use_container_width=True)
+
     st.markdown(f"### Over Goals SH {title_suffix} ({total_matches})")
     goal_lines = [0.5,1.5,2.5,3.5,4.5]
     over_rows = []
@@ -661,7 +716,7 @@ def generate_sh_stats(df, title_suffix=""):
     else:
         st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
 
-def generate_ft_stats(df, title_suffix=""):
+def generate_ft_stats(df, title_suffix="", team_1_name=None, team_2_name=None):
     if df.empty or not {'home_team_goal_count','away_team_goal_count'}.issubset(df.columns):
         st.info(f"Per le statistiche FT{title_suffix} servono le colonne 'home_team_goal_count' e 'away_team_goal_count'.")
         return
@@ -696,6 +751,27 @@ def generate_ft_stats(df, title_suffix=""):
     df_wr_ft['WinRate %'] = (df_wr_ft['Conteggio'] / total_matches * 100).round(2)
     df_wr_ft['Odd Minima'] = df_wr_ft['WinRate %'].apply(odd_min_from_percent)
     st.dataframe(style_table(df_wr_ft, ['WinRate %']), use_container_width=True)
+
+    if team_1_name and team_2_name:
+        st.markdown(f"#### Gol Fatti/Subiti FT {title_suffix}")
+        
+        goals_for_t1 = (df.loc[df['home_team_name'] == team_1_name, 'home_team_goal_count'].sum() + 
+                        df.loc[df['away_team_name'] == team_1_name, 'away_team_goal_count'].sum())
+        goals_against_t1 = (df.loc[df['home_team_name'] == team_1_name, 'away_team_goal_count'].sum() + 
+                            df.loc[df['away_team_name'] == team_1_name, 'home_team_goal_count'].sum())
+        
+        goals_for_t2 = (df.loc[df['home_team_name'] == team_2_name, 'home_team_goal_count'].sum() + 
+                        df.loc[df['away_team_name'] == team_2_name, 'away_team_goal_count'].sum())
+        goals_against_t2 = (df.loc[df['home_team_name'] == team_2_name, 'away_team_goal_count'].sum() + 
+                            df.loc[df['away_team_name'] == team_2_name, 'home_team_goal_count'].sum())
+
+        gf_ga_df = pd.DataFrame({
+            'Squadra': [team_1_name, team_2_name],
+            'Gol Fatti': [goals_for_t1, goals_for_t2],
+            'Gol Subiti': [goals_against_t1, goals_against_t2]
+        })
+        st.dataframe(gf_ga_df, use_container_width=True)
+
     st.markdown(f"### Over Goals FT {title_suffix} ({total_matches})")
     goal_lines = [0.5,1.5,2.5,3.5,4.5]
     over_rows = []
@@ -1180,24 +1256,20 @@ else:
             with col15_h2h:
                 st.markdown("**Ogni 15 minuti**")
                 tf_h2h_15 = timeframes_table(h2h_odds_filtered, step=15)
-                st.dataframe(style_table(tf_h2h_15, ['Percentuale %','>= 2 Gol %',
-                                                     'Percentuale % Casa', 'Percentuale % Trasferta',
-                                                     '2+ Gol % Casa', '2+ Gol % Trasferta']), use_container_width=True)
+                st.dataframe(style_table(tf_h2h_15, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
             with col5_h2h:
                 st.markdown("**Ogni 5 minuti (con 45+)**")
                 tf_h2h_5 = timeframes_table(h2h_odds_filtered, step=5)
-                st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %',
-                                                    'Percentuale % Casa', 'Percentuale % Trasferta',
-                                                    '2+ Gol % Casa', '2+ Gol % Trasferta']), use_container_width=True)
+                st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
         
         # Statistiche HT H2H
         with st.expander(f"Statistiche HT H2H ({len(h2h_odds_filtered)} partite)"):
-            generate_ht_stats(h2h_odds_filtered, title_suffix="H2H")
+            generate_ht_stats(h2h_odds_filtered, title_suffix="H2H", team_1_name=selected_home_team, team_2_name=selected_away_team)
 
         # Statistiche SH H2H
         with st.expander(f"Statistiche SH H2H ({len(h2h_odds_filtered)} partite)"):
-            generate_sh_stats(h2h_odds_filtered, title_suffix="H2H")
+            generate_sh_stats(h2h_odds_filtered, title_suffix="H2H", team_1_name=selected_home_team, team_2_name=selected_away_team)
 
         # Statistiche FT H2H
         with st.expander(f"Statistiche FT H2H ({len(h2h_odds_filtered)} partite)"):
-            generate_ft_stats(h2h_odds_filtered, title_suffix="H2H")
+            generate_ft_stats(h2h_odds_filtered, title_suffix="H2H", team_1_name=selected_home_team, team_2_name=selected_away_team)
