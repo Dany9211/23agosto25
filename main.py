@@ -88,29 +88,27 @@ def buckets_from_tokens_step(cell, step:int):
         result.append(bucket_label_5min(minute) if step==5 else bucket_label_15min(minute))
     return result
 
+
 def timeframes_table(df_subset: pd.DataFrame, step:int):
     buckets = gen_buckets(step)
-    # match-level tallies
     counts_matches_with_goal = {b: 0 for b in buckets}
     counts_matches_with_2plus = {b: 0 for b in buckets}
-    # goal tallies (absolute number of goals) per bucket
-    home_gf_goals = {b: 0 for b in buckets}  # Home goals scored
-    home_ga_goals = {b: 0 for b in buckets}  # Home goals conceded (i.e., Away goals)
-    away_gf_goals = {b: 0 for b in buckets}  # Away goals scored
-    away_ga_goals = {b: 0 for b in buckets}  # Away goals conceded (i.e., Home goals)
-
+    home_gf_goals = {b: 0 for b in buckets}
+    home_ga_goals = {b: 0 for b in buckets}
+    away_gf_goals = {b: 0 for b in buckets}
+    away_ga_goals = {b: 0 for b in buckets}
     total_matches = len(df_subset)
 
+    sel_home = globals().get('selected_home_team', None)
+    sel_away = globals().get('selected_away_team', None)
+
     for _, row in df_subset.iterrows():
-        # Extract raw timing strings (minute tokens) per team
         home_tokens = row.get('home_team_goal_timings', np.nan)
         away_tokens = row.get('away_team_goal_timings', np.nan)
-
-        # Convert to bucket lists (one entry per goal occurrence)
         hb_list = buckets_from_tokens_step(home_tokens, step) or []
         ab_list = buckets_from_tokens_step(away_tokens, step) or []
 
-        # For "match has goal(s) in bucket" logic (existing)
+        # original presence logic
         both_list = hb_list + ab_list
         if not both_list:
             continue
@@ -124,17 +122,38 @@ def timeframes_table(df_subset: pd.DataFrame, step:int):
             if c >= 2:
                 counts_matches_with_2plus[b] += 1
 
-        # NEW: accumulate absolute goals per team & conceded counterpart
-        for b in hb_list:
-            if b in home_gf_goals:
-                home_gf_goals[b] += 1
-                away_ga_goals[b] += 1  # away concedes what home scores
-        for b in ab_list:
-            if b in away_gf_goals:
-                away_gf_goals[b] += 1
-                home_ga_goals[b] += 1  # home concedes what away scores
+        # Row team names (if available)
+        home_name = row.get('home_team_name') if 'home_team_name' in row else None
+        away_name = row.get('away_team_name') if 'away_team_name' in row else None
 
-    # Build rows
+        # HOME side logic
+        if sel_home and sel_home != 'Tutte':
+            if home_name == sel_home:
+                for b in hb_list:
+                    if b in home_gf_goals: home_gf_goals[b] += 1
+                for b in ab_list:
+                    if b in home_ga_goals: home_ga_goals[b] += 1
+        else:
+            # aggregate by league (all home teams in subset)
+            for b in hb_list:
+                if b in home_gf_goals: home_gf_goals[b] += 1
+            for b in ab_list:
+                if b in home_ga_goals: home_ga_goals[b] += 1
+
+        # AWAY side logic
+        if sel_away and sel_away != 'Tutte':
+            if away_name == sel_away:
+                for b in ab_list:
+                    if b in away_gf_goals: away_gf_goals[b] += 1
+                for b in hb_list:
+                    if b in away_ga_goals: away_ga_goals[b] += 1
+        else:
+            # aggregate by league (all away teams in subset)
+            for b in ab_list:
+                if b in away_gf_goals: away_gf_goals[b] += 1
+            for b in hb_list:
+                if b in away_ga_goals: away_ga_goals[b] += 1
+
     rows = []
     for b in buckets:
         with_goal = counts_matches_with_goal[b]
@@ -144,17 +163,12 @@ def timeframes_table(df_subset: pd.DataFrame, step:int):
         pct2 = round((g2 / total_matches) * 100, 2) if total_matches else 0.0
         odd_min2 = odd_min_from_percent(pct2) if pct2 > 0 else None
 
-        # Absolute goal tallies
-        h_gf = home_gf_goals[b]
-        h_ga = home_ga_goals[b]
-        a_gf = away_gf_goals[b]
-        a_ga = away_ga_goals[b]
-
         rows.append([
             b,
             with_goal, pct, odd_min,
             pct2, odd_min2,
-            h_gf, h_ga, a_gf, a_ga
+            home_gf_goals[b], home_ga_goals[b],
+            away_gf_goals[b], away_ga_goals[b]
         ])
 
     tf_df = pd.DataFrame(rows, columns=[
