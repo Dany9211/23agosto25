@@ -90,16 +90,32 @@ def buckets_from_tokens_step(cell, step:int):
 
 def timeframes_table(df_subset: pd.DataFrame, step:int):
     buckets = gen_buckets(step)
+    # match-level tallies
     counts_matches_with_goal = {b: 0 for b in buckets}
     counts_matches_with_2plus = {b: 0 for b in buckets}
+    # goal tallies (absolute number of goals) per bucket
+    home_gf_goals = {b: 0 for b in buckets}  # Home goals scored
+    home_ga_goals = {b: 0 for b in buckets}  # Home goals conceded (i.e., Away goals)
+    away_gf_goals = {b: 0 for b in buckets}  # Away goals scored
+    away_ga_goals = {b: 0 for b in buckets}  # Away goals conceded (i.e., Home goals)
+
     total_matches = len(df_subset)
 
     for _, row in df_subset.iterrows():
-        b_list = buckets_from_tokens_step(row.get('home_team_goal_timings', np.nan), step) +                  buckets_from_tokens_step(row.get('away_team_goal_timings', np.nan), step)
-        if not b_list:
+        # Extract raw timing strings (minute tokens) per team
+        home_tokens = row.get('home_team_goal_timings', np.nan)
+        away_tokens = row.get('away_team_goal_timings', np.nan)
+
+        # Convert to bucket lists (one entry per goal occurrence)
+        hb_list = buckets_from_tokens_step(home_tokens, step) or []
+        ab_list = buckets_from_tokens_step(away_tokens, step) or []
+
+        # For "match has goal(s) in bucket" logic (existing)
+        both_list = hb_list + ab_list
+        if not both_list:
             continue
-        per_bucket = {b:0 for b in buckets}
-        for b in b_list:
+        per_bucket = {b: 0 for b in buckets}
+        for b in both_list:
             if b in per_bucket:
                 per_bucket[b] += 1
         for b, c in per_bucket.items():
@@ -108,6 +124,17 @@ def timeframes_table(df_subset: pd.DataFrame, step:int):
             if c >= 2:
                 counts_matches_with_2plus[b] += 1
 
+        # NEW: accumulate absolute goals per team & conceded counterpart
+        for b in hb_list:
+            if b in home_gf_goals:
+                home_gf_goals[b] += 1
+                away_ga_goals[b] += 1  # away concedes what home scores
+        for b in ab_list:
+            if b in away_gf_goals:
+                away_gf_goals[b] += 1
+                home_ga_goals[b] += 1  # home concedes what away scores
+
+    # Build rows
     rows = []
     for b in buckets:
         with_goal = counts_matches_with_goal[b]
@@ -116,60 +143,28 @@ def timeframes_table(df_subset: pd.DataFrame, step:int):
         g2 = counts_matches_with_2plus[b]
         pct2 = round((g2 / total_matches) * 100, 2) if total_matches else 0.0
         odd_min2 = odd_min_from_percent(pct2) if pct2 > 0 else None
-        rows.append([b, with_goal, pct, odd_min, pct2, odd_min2])
 
-    tf_df = pd.DataFrame(rows, columns=['Timeframe','Partite con Gol','Percentuale %','Odd Minima','>= 2 Gol %','Odd Minima >= 2 Gol'])
-    return tf_df
+        # Absolute goal tallies
+        h_gf = home_gf_goals[b]
+        h_ga = home_ga_goals[b]
+        a_gf = away_gf_goals[b]
+        a_ga = away_ga_goals[b]
 
-
-def timeframes_table_by_team(df_subset: pd.DataFrame, step:int):
-    '''
-    Tabella per timeframe con Gol Fatti (GF) e Gol Subiti (GA) separati per Home e Away.
-    Conta le PARTITE in cui la squadra ha segnato/subìto almeno 1 gol nel timeframe.
-    '''
-    buckets = gen_buckets(step)
-    total_matches = len(df_subset)
-    counts = {b: {'home_gf':0,'home_ga':0,'away_gf':0,'away_ga':0} for b in buckets}
-
-    for _, row in df_subset.iterrows():
-        hb = buckets_from_tokens_step(row.get('home_team_goal_timings', np.nan), step)
-        ab = buckets_from_tokens_step(row.get('away_team_goal_timings', np.nan), step)
-        # Segna almeno 1 in quel bucket
-        for b in set(hb):
-            if b in counts:
-                counts[b]['home_gf'] += 1
-                counts[b]['away_ga'] += 1  # se segna Home, subisce Away
-        for b in set(ab):
-            if b in counts:
-                counts[b]['away_gf'] += 1
-                counts[b]['home_ga'] += 1  # se segna Away, subisce Home
-
-    def pct(x):
-        return round((x / total_matches) * 100, 2) if total_matches else 0.0
-    def odd_from_count(x):
-        p = pct(x)
-        return odd_min_from_percent(p)
-
-    rows = []
-    for b in buckets:
-        c = counts[b]
         rows.append([
             b,
-            c['home_gf'], pct(c['home_gf']), odd_from_count(c['home_gf']),
-            c['home_ga'], pct(c['home_ga']), odd_from_count(c['home_ga']),
-            c['away_gf'], pct(c['away_gf']), odd_from_count(c['away_gf']),
-            c['away_ga'], pct(c['away_ga']), odd_from_count(c['away_ga']),
+            with_goal, pct, odd_min,
+            pct2, odd_min2,
+            h_gf, h_ga, a_gf, a_ga
         ])
 
-    cols = [
+    tf_df = pd.DataFrame(rows, columns=[
         'Timeframe',
-        'Home: Partite con GF','Home GF %','Home GF Odd Min',
-        'Home: Partite con GA','Home GA %','Home GA Odd Min',
-        'Away: Partite con GF','Away GF %','Away GF Odd Min',
-        'Away: Partite con GA','Away GA %','Away GA Odd Min',
-    ]
-    return pd.DataFrame(rows, columns=cols)
-
+        'Partite con Gol', 'Percentuale %', 'Odd Minima',
+        '>= 2 Gol %', 'Odd Minima >= 2 Gol',
+        'Home GF (gol)', 'Home GA (gol)',
+        'Away GF (gol)', 'Away GA (gol)'
+    ])
+    return tf_df
 def parse_minutes_numeric(cell):
     if pd.isna(cell) or str(cell).strip()=='': return []
     out = []
@@ -752,19 +747,8 @@ else:
         tf_total_5 = timeframes_table(team_filtered_df, step=5)
         st.dataframe(style_table(tf_total_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
 
-    
-# --- Aggiunta: Timing GF/GA per squadra (Totale) ---
-st.markdown("### Timing: Gol Fatti/Subiti per Squadra — Totale")
-colT1, colT2 = st.columns(2)
-with colT1:
-    st.markdown("**Ogni 15 minuti (GF/GA)**")
-    tf_team_total_15 = timeframes_table_by_team(team_filtered_df, step=15)
-    st.dataframe(style_table(tf_team_total_15, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
-with colT2:
-    st.markdown("**Ogni 5 minuti (GF/GA)**")
-    tf_team_total_5 = timeframes_table_by_team(team_filtered_df, step=5)
-    st.dataframe(style_table(tf_team_total_5, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
-
+    st.markdown("---")
+    st.markdown("### Tasso di Conversione (Gol per Tiri in porta)")
     conversion_rate_table = create_conversion_rate_table(team_filtered_df)
     if not conversion_rate_table.empty:
         st.dataframe(conversion_rate_table, use_container_width=True)
@@ -797,19 +781,8 @@ else:
         tf_odds_5 = timeframes_table(odds_filtered, step=5)
         st.dataframe(style_table(tf_odds_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
 
-    
-# --- Aggiunta: Timing GF/GA per squadra (Con filtri quota) ---
-st.markdown("### Timing: Gol Fatti/Subiti per Squadra — Con filtri quota")
-colQ1, colQ2 = st.columns(2)
-with colQ1:
-    st.markdown("**Ogni 15 minuti (GF/GA)**")
-    tf_team_odds_15 = timeframes_table_by_team(odds_filtered, step=15)
-    st.dataframe(style_table(tf_team_odds_15, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
-with colQ2:
-    st.markdown("**Ogni 5 minuti (GF/GA)**")
-    tf_team_odds_5 = timeframes_table_by_team(odds_filtered, step=5)
-    st.dataframe(style_table(tf_team_odds_5, ['Home GF %','Home GA %','Away GF %','Away GA %']), use_container_width=True)
-
+    st.markdown("---")
+    st.markdown("### Tasso di Conversione (Gol per Tiri in porta)")
     conversion_rate_table_odds = create_conversion_rate_table(odds_filtered)
     if not conversion_rate_table_odds.empty:
         st.dataframe(conversion_rate_table_odds, use_container_width=True)
@@ -897,26 +870,6 @@ with st.expander(f"Statistiche HT ({len(odds_filtered)} partite)"):
         ts_df['Percentuale %'] = (ts_df['Conteggio'] / total_matches * 100).round(2)
         ts_df['Odd Minima'] = ts_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(ts_df, ['Percentuale %']), use_container_width=True)
-
-        # --- Aggiunta: To Concede HT + Media GF/GA HT ---
-        concede_home_ht = int((ht_away >= 1).sum())
-        concede_away_ht = int((ht_home >= 1).sum())
-        tc_ht_df = pd.DataFrame({
-            'Squadra': ['Home subisce HT', 'Away subisce HT'],
-            'Conteggio': [concede_home_ht, concede_away_ht]
-        })
-        tc_ht_df['Percentuale %'] = (tc_ht_df['Conteggio'] / total_matches * 100).round(2)
-        tc_ht_df['Odd Minima'] = tc_ht_df['Percentuale %'].apply(odd_min_from_percent)
-        st.markdown(f"### To Concede HT ({total_matches})")
-        st.dataframe(style_table(tc_ht_df, ['Percentuale %']), use_container_width=True)
-        
-        media_ht_df = pd.DataFrame({
-            'Metrica': ['Home GF HT','Home GA HT','Away GF HT','Away GA HT'],
-            'Valore': [round(ht_home.mean(),2), round(ht_away.mean(),2), round(ht_away.mean(),2), round(ht_home.mean(),2)]
-        })
-        st.markdown("### Media GF/GA HT")
-        st.dataframe(media_ht_df, use_container_width=True)
-        
         st.markdown(f"### BTTS HT ({total_matches})")
         btts_yes_count = int(((ht_home >= 1) & (ht_away >= 1)).sum())
         btts_no_count = int(total_matches - btts_yes_count)
@@ -1031,26 +984,6 @@ with st.expander(f"Statistiche SH (Secondo Tempo) ({len(odds_filtered)} partite)
         ts_sh_df['Percentuale %'] = (ts_sh_df['Conteggio'] / total_matches * 100).round(2)
         ts_sh_df['Odd Minima'] = ts_sh_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(ts_sh_df, ['Percentuale %']), use_container_width=True)
-
-        # --- Aggiunta: To Concede SH + Media GF/GA SH ---
-        concede_home_sh = int((sh_away >= 1).sum())
-        concede_away_sh = int((sh_home >= 1).sum())
-        tc_sh_df = pd.DataFrame({
-            'Squadra': ['Home subisce SH', 'Away subisce SH'],
-            'Conteggio': [concede_home_sh, concede_away_sh]
-        })
-        tc_sh_df['Percentuale %'] = (tc_sh_df['Conteggio'] / total_matches * 100).round(2)
-        tc_sh_df['Odd Minima'] = tc_sh_df['Percentuale %'].apply(odd_min_from_percent)
-        st.markdown(f"### To Concede SH ({total_matches})")
-        st.dataframe(style_table(tc_sh_df, ['Percentuale %']), use_container_width=True)
-        
-        media_sh_df = pd.DataFrame({
-            'Metrica': ['Home GF SH','Home GA SH','Away GF SH','Away GA SH'],
-            'Valore': [round(sh_home.mean(),2), round(sh_away.mean(),2), round(sh_away.mean(),2), round(sh_home.mean(),2)]
-        })
-        st.markdown("### Media GF/GA SH")
-        st.dataframe(media_sh_df, use_container_width=True)
-        
         st.markdown(f"### BTTS SH ({total_matches})")
         btts_yes = int(((sh_home >= 1) & (sh_away >= 1)).sum())
         btts_no = int(total_matches - btts_yes)
@@ -1160,28 +1093,7 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
         btts_ft_df['Percentuale %'] = (btts_ft_df['Conteggio'] / total_matches * 100).round(2)
         btts_ft_df['Odd Minima'] = btts_ft_df['Percentuale %'].apply(odd_min_from_percent)
         st.dataframe(style_table(btts_ft_df, ['Percentuale %']), use_container_width=True)
-
-        # --- Aggiunta: To Concede FT + Media GF/GA FT ---
-        concede_home_ft = int((ft_away >= 1).sum())
-        concede_away_ft = int((ft_home >= 1).sum())
-        tc_ft_df = pd.DataFrame({
-            'Squadra': ['Home subisce FT', 'Away subisce FT'],
-            'Conteggio': [concede_home_ft, concede_away_ft]
-        })
-        tc_ft_df['Percentuale %'] = (tc_ft_df['Conteggio'] / total_matches * 100).round(2)
-        tc_ft_df['Odd Minima'] = tc_ft_df['Percentuale %'].apply(odd_min_from_percent)
-        st.markdown(f"### To Concede FT ({total_matches})")
-        st.dataframe(style_table(tc_ft_df, ['Percentuale %']), use_container_width=True)
-        
-        media_ft_df = pd.DataFrame({
-            'Metrica': ['Home GF FT','Home GA FT','Away GF FT','Away GA FT'],
-            'Valore': [round(ft_home.mean(),2), round(ft_away.mean(),2), round(ft_away.mean(),2), round(ft_home.mean(),2)]
-        })
-        st.markdown("### Media GF/GA FT")
-        st.dataframe(media_ft_df, use_container_width=True)
-        
         st.markdown(f"### First to Score (FT) ({total_matches})")
-
         if {'home_team_goal_timings','away_team_goal_timings'}.issubset(odds_filtered.columns):
             fts_df = compute_first_to_score_ft(odds_filtered)
             st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
