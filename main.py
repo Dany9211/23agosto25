@@ -23,10 +23,12 @@ def style_table(df: pd.DataFrame, percent_cols):
         "Odd Minima >= 2 Gol": lambda x: "-" if pd.isna(x) else f"{x:.2f}",
         "Conteggio": "{:,.0f}",
         "Partite con Gol": "{:,.0f}",
-        "Partite con Gol Casa": "{:,.0f}",
-        "Partite con Gol Trasferta": "{:,.0f}",
+        "Gol Fatti": "{:,.0f}",
+        "Gol Subiti": "{:,.0f}",
         "Partite con 2+ Gol Casa": "{:,.0f}",
         "Partite con 2+ Gol Trasferta": "{:,.0f}",
+        "Gol Casa": "{:,.0f}",
+        "Gol Trasferta": "{:,.0f}",
     })
     styler = (df.style
                 .format(fmt)
@@ -94,12 +96,6 @@ def buckets_from_tokens_step(cell, step:int):
 
 def timeframes_table(df_subset: pd.DataFrame, step:int):
     buckets = gen_buckets(step)
-    counts_matches_with_goal = {b: 0 for b in buckets}
-    counts_matches_with_2plus = {b: 0 for b in buckets}
-    counts_matches_with_goal_home = {b: 0 for b in buckets}
-    counts_matches_with_goal_away = {b: 0 for b in buckets}
-    counts_matches_with_2plus_home = {b: 0 for b in buckets}
-    counts_matches_with_2plus_away = {b: 0 for b in buckets}
     
     total_goals_home = {b: 0 for b in buckets}
     total_goals_away = {b: 0 for b in buckets}
@@ -109,93 +105,29 @@ def timeframes_table(df_subset: pd.DataFrame, step:int):
     for _, row in df_subset.iterrows():
         b_list_home = buckets_from_tokens_step(row.get('home_team_goal_timings', np.nan), step)
         b_list_away = buckets_from_tokens_step(row.get('away_team_goal_timings', np.nan), step)
-        b_list = b_list_home + b_list_away
-
-        if not b_list:
-            continue
         
-        per_bucket = {b:0 for b in buckets}
-        for b in b_list:
-            if b in per_bucket:
-                per_bucket[b] += 1
-        
-        per_bucket_home = {b:0 for b in buckets}
         for b in b_list_home:
-            if b in per_bucket_home:
-                per_bucket_home[b] += 1
+            if b in total_goals_home:
+                total_goals_home[b] += 1
 
-        per_bucket_away = {b:0 for b in buckets}
         for b in b_list_away:
-            if b in per_bucket_away:
-                per_bucket_away[b] += 1
-
-        for b, c in per_bucket.items():
-            if c >= 1:
-                counts_matches_with_goal[b] += 1
-            if c >= 2:
-                counts_matches_with_2plus[b] += 1
-        
-        for b, c in per_bucket_home.items():
-            if c >= 1:
-                counts_matches_with_goal_home[b] += 1
-            if c >= 2:
-                counts_matches_with_2plus_home[b] += 1
-            total_goals_home[b] += c
-
-        for b, c in per_bucket_away.items():
-            if c >= 1:
-                counts_matches_with_goal_away[b] += 1
-            if c >= 2:
-                counts_matches_with_2plus_away[b] += 1
-            total_goals_away[b] += c
-
+            if b in total_goals_away:
+                total_goals_away[b] += 1
 
     rows = []
     for b in buckets:
-        with_goal = counts_matches_with_goal[b]
-        pct = round((with_goal / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min = odd_min_from_percent(pct)
+        goals_home = total_goals_home[b]
+        goals_away = total_goals_away[b]
+        total_goals = goals_home + goals_away
         
-        g_home = counts_matches_with_goal_home[b]
-        pct_home = round((g_home / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min_home = odd_min_from_percent(pct_home) if pct_home > 0 else None
+        pct_home = round((goals_home / total_matches) * 100, 2) if total_matches else 0.0
+        pct_away = round((goals_away / total_matches) * 100, 2) if total_matches else 0.0
+        pct_total = round((total_goals / total_matches) * 100, 2) if total_matches else 0.0
 
-        g_away = counts_matches_with_goal_away[b]
-        pct_away = round((g_away / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min_away = odd_min_from_percent(pct_away) if pct_away > 0 else None
+        rows.append([b, goals_home, pct_home, goals_away, pct_away, total_goals, pct_total])
 
-        g2 = counts_matches_with_2plus[b]
-        pct2 = round((g2 / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min2 = odd_min_from_percent(pct2) if pct2 > 0 else None
-
-        g2_home = counts_matches_with_2plus_home[b]
-        pct2_home = round((g2_home / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min2_home = odd_min_from_percent(pct2_home) if pct2_home > 0 else None
-
-        g2_away = counts_matches_with_2plus_away[b]
-        pct2_away = round((g2_away / total_matches) * 100, 2) if total_matches else 0.0
-        odd_min2_away = odd_min_from_percent(pct2_away) if pct2_away > 0 else None
-
-        rows.append([b, with_goal, pct, odd_min, g_home, pct_home, odd_min_home, g_away, pct_away, odd_min_away,
-                     g2, pct2, odd_min2, g2_home, pct2_home, odd_min2_home, g2_away, pct2_away, odd_min2_away])
-
-    columns = ['Timeframe','Partite con Gol','Percentuale %','Odd Minima',
-               'Partite con Gol Casa','Percentuale % Casa','Odd Minima Casa',
-               'Partite con Gol Trasferta','Percentuale % Trasferta','Odd Minima Trasferta',
-               '>= 2 Gol','>= 2 Gol %','Odd Minima >= 2 Gol',
-               'Partite con 2+ Gol Casa','2+ Gol % Casa','Odd Minima 2+ Gol Casa',
-               'Partite con 2+ Gol Trasferta','2+ Gol % Trasferta','Odd Minima 2+ Gol Trasferta']
+    columns = ['Timeframe','Gol Casa','Gol Casa %','Gol Trasferta','Gol Trasferta %','Totale Gol','Totale Gol %']
     tf_df = pd.DataFrame(rows, columns=columns)
-    
-    # Nuove righe per i gol totali
-    total_goals_row = ['Gol Totali', 
-                       sum(total_goals_home.values()) + sum(total_goals_away.values()),
-                       np.nan, np.nan, 
-                       sum(total_goals_home.values()), np.nan, np.nan,
-                       sum(total_goals_away.values()), np.nan, np.nan,
-                       np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan]
-    
-    tf_df.loc[len(tf_df)] = total_goals_row
     
     return tf_df
 
@@ -1135,11 +1067,11 @@ else:
     with col15:
         st.markdown("**Ogni 15 minuti**")
         tf_total_15 = timeframes_table(team_filtered_df, step=15)
-        st.dataframe(style_table(tf_total_15, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+        st.dataframe(tf_total_15.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
     with col5:
         st.markdown("**Ogni 5 minuti (con 45+)**")
         tf_total_5 = timeframes_table(team_filtered_df, step=5)
-        st.dataframe(style_table(tf_total_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+        st.dataframe(tf_total_5.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Tasso di Conversione (Gol per Tiri in porta)")
@@ -1169,11 +1101,11 @@ else:
     with col15b:
         st.markdown("**Ogni 15 minuti**")
         tf_odds_15 = timeframes_table(odds_filtered, step=15)
-        st.dataframe(style_table(tf_odds_15, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+        st.dataframe(tf_odds_15.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
     with col5b:
         st.markdown("**Ogni 5 minuti (con 45+)**")
         tf_odds_5 = timeframes_table(odds_filtered, step=5)
-        st.dataframe(style_table(tf_odds_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+        st.dataframe(tf_odds_5.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Tasso di Conversione (Gol per Tiri in porta)")
@@ -1596,11 +1528,11 @@ else:
             with col15_h2h:
                 st.markdown("**Ogni 15 minuti**")
                 tf_h2h_15 = timeframes_table(h2h_odds_filtered, step=15)
-                st.dataframe(style_table(tf_h2h_15, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+                st.dataframe(tf_h2h_15.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
             with col5_h2h:
                 st.markdown("**Ogni 5 minuti (con 45+)**")
                 tf_h2h_5 = timeframes_table(h2h_odds_filtered, step=5)
-                st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+                st.dataframe(tf_h2h_5.style.background_gradient(subset=['Gol Casa %', 'Gol Trasferta %', 'Totale Gol %'], cmap="RdYlGn"), use_container_width=True)
         
         # Statistiche HT H2H
         with st.expander(f"Statistiche HT H2H ({len(h2h_odds_filtered)} partite)"):
