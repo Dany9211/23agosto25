@@ -1121,3 +1121,287 @@ else:
                 st.markdown("**Ogni 5 minuti (con 45+)**")
                 tf_h2h_5 = timeframes_table(h2h_odds_filtered, step=5)
                 st.dataframe(style_table(tf_h2h_5, ['Percentuale %','>= 2 Gol %']), use_container_width=True)
+        
+        # Statistiche HT H2H
+        with st.expander(f"Statistiche HT H2H ({len(h2h_odds_filtered)} partite)"):
+            if h2h_odds_filtered.empty or not {'home_team_goal_count_half_time','away_team_goal_count_half_time'}.issubset(h2h_odds_filtered.columns):
+                st.info("Dati insufficienti per le statistiche HT H2H.")
+            else:
+                total_matches = len(h2h_odds_filtered)
+                st.markdown(f"### Risultati Esatti HT H2H ({total_matches})")
+                betfair_order = ["0 - 0","0 - 1","0 - 2","0 - 3",
+                                 "1 - 0","1 - 1","1 - 2","1 - 3",
+                                 "2 - 0","2 - 1","2 - 2","2 - 3",
+                                 "3 - 0","3 - 1","3 - 2","3 - 3",
+                                 "Any Other Home Win","Any Other Away Win","Any Other Draw"]
+                dist = h2h_odds_filtered['HT CS (Betfair)'].value_counts(dropna=False).reindex(betfair_order, fill_value=0)
+                df_cs = pd.DataFrame({'HT (Betfair)': dist.index, 'Conteggio': dist.values})
+                df_cs['Percentuale %'] = (df_cs['Conteggio'] / total_matches * 100).round(2)
+                df_cs['Odd Minima'] = df_cs['Percentuale %'].apply(odd_min_from_percent)
+                df_cs['order'] = df_cs['HT (Betfair)'].apply(lambda x: betfair_order.index(x))
+                df_cs = df_cs.sort_values('order').drop(columns=['order'])
+                st.dataframe(style_table(df_cs, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### WinRate HT H2H ({total_matches})")
+                ht_home = h2h_odds_filtered['home_team_goal_count_half_time']
+                ht_away = h2h_odds_filtered['away_team_goal_count_half_time']
+                home_w = (ht_home > ht_away).sum()
+                draws = (ht_home == ht_away).sum()
+                away_w = (ht_home < ht_away).sum()
+                df_wr = pd.DataFrame({
+                    'Esito': ['1 (Casa)','X (Pareggio)','2 (Trasferta)'],
+                    'Conteggio': [home_w, draws, away_w]
+                })
+                df_wr['WinRate %'] = (df_wr['Conteggio'] / total_matches * 100).round(2)
+                df_wr['Odd Minima'] = df_wr['WinRate %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(df_wr, ['WinRate %']), use_container_width=True)
+                st.markdown(f"### Over Goals HT H2H ({total_matches})")
+                goal_lines = [0.5,1.5,2.5,3.5,4.5]
+                tg = h2h_odds_filtered['total_goals_at_half_time']
+                over_rows = []
+                for gl in goal_lines:
+                    over_count = int((tg > (gl - 0.5)).sum())
+                    over_pct = round(over_count / total_matches * 100, 2)
+                    over_rows.append([f"Over {gl} HT", over_count, over_pct, odd_min_from_percent(over_pct)])
+                df_over = pd.DataFrame(over_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_over, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Under Goals HT H2H ({total_matches})")
+                under_rows = []
+                for gl in goal_lines:
+                    over_count = int((tg > (gl - 0.5)).sum())
+                    under_count = int(total_matches - over_count)
+                    under_pct = round(under_count / total_matches * 100, 2)
+                    under_rows.append([f"Under {gl} HT", under_count, under_pct, odd_min_from_percent(under_pct)])
+                df_under = pd.DataFrame(under_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_under, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Doppia Chance HT H2H ({total_matches})")
+                count_1X = int(((ht_home > ht_away) | (ht_home == ht_away)).sum())
+                count_X2 = int(((ht_home < ht_away) | (ht_home == ht_away)).sum())
+                count_12 = int((ht_home != ht_away).sum())
+                dc_df = pd.DataFrame({
+                    'Mercato': ['1X','X2','12'],
+                    'Conteggio': [count_1X, count_X2, count_12]
+                })
+                dc_df['Percentuale %'] = (dc_df['Conteggio'] / total_matches * 100).round(2)
+                dc_df['Odd Minima'] = dc_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(dc_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### To Score HT H2H ({total_matches})")
+                ts_home_count = int((ht_home >= 1).sum())
+                ts_away_count = int((ht_away >= 1).sum())
+                ts_df = pd.DataFrame({
+                    'Squadra': ['Home segna HT', 'Away segna HT'],
+                    'Conteggio': [ts_home_count, ts_away_count]
+                })
+                ts_df['Percentuale %'] = (ts_df['Conteggio'] / total_matches * 100).round(2)
+                ts_df['Odd Minima'] = ts_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(ts_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### BTTS HT H2H ({total_matches})")
+                btts_yes_count = int(((ht_home >= 1) & (ht_away >= 1)).sum())
+                btts_no_count = int(total_matches - btts_yes_count)
+                btts_df = pd.DataFrame({
+                    'Mercato': ['BTTS SI (HT)','BTTS NO (HT)'],
+                    'Conteggio': [btts_yes_count, btts_no_count]
+                })
+                btts_df['Percentuale %'] = (btts_df['Conteggio'] / total_matches * 100).round(2)
+                btts_df['Odd Minima'] = btts_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(btts_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### First to Score (HT) H2H ({total_matches})")
+                if {'home_team_goal_timings','away_team_goal_timings'}.issubset(h2h_odds_filtered.columns):
+                    fts_df = compute_first_to_score_ht(h2h_odds_filtered)
+                    st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
+                else:
+                    st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
+
+        # Statistiche SH H2H
+        with st.expander(f"Statistiche SH H2H ({len(h2h_odds_filtered)} partite)"):
+            if h2h_odds_filtered.empty or not {'home_team_goal_timings','away_team_goal_timings'}.issubset(h2h_odds_filtered.columns):
+                st.info("Per le statistiche SH servono le colonne minuti gol (home_team_goal_timings/away_team_goal_timings).")
+            else:
+                total_matches = len(h2h_odds_filtered)
+                sh_home_counts = []
+                sh_away_counts = []
+                for _, row in h2h_odds_filtered.iterrows():
+                    hmins = minutes_second_half(row.get('home_team_goal_timings', np.nan))
+                    amins = minutes_second_half(row.get('away_team_goal_timings', np.nan))
+                    sh_home_counts.append(len(hmins))
+                    sh_away_counts.append(len(amins))
+                sh_home = pd.Series(sh_home_counts, index=h2h_odds_filtered.index)
+                sh_away = pd.Series(sh_away_counts, index=h2h_odds_filtered.index)
+                sh_total_goals = sh_home + sh_away
+                st.markdown(f"### Risultati Esatti SH H2H ({total_matches})")
+                betfair_order = ["0 - 0","0 - 1","0 - 2","0 - 3",
+                                 "1 - 0","1 - 1","1 - 2","1 - 3",
+                                 "2 - 0","2 - 1","2 - 2","2 - 3",
+                                 "3 - 0","3 - 1","3 - 2","3 - 3",
+                                 "Any Other Home Win","Any Other Away Win","Any Other Draw"]
+                labels = [sh_cs_label(h, a) for h, a in zip(sh_home, sh_away)]
+                dist = pd.Series(labels).value_counts(dropna=False).reindex(betfair_order, fill_value=0)
+                df_cs_sh = pd.DataFrame({'SH (Betfair)': dist.index, 'Conteggio': dist.values})
+                df_cs_sh['Percentuale %'] = (df_cs_sh['Conteggio'] / total_matches * 100).round(2)
+                df_cs_sh['Odd Minima'] = df_cs_sh['Percentuale %'].apply(odd_min_from_percent)
+                df_cs_sh['order'] = df_cs_sh['SH (Betfair)'].apply(lambda x: betfair_order.index(x))
+                df_cs_sh = df_cs_sh.sort_values('order').drop(columns=['order'])
+                st.dataframe(style_table(df_cs_sh, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### WinRate SH H2H ({total_matches})")
+                home_w = int((sh_home > sh_away).sum())
+                draws = int((sh_home == sh_away).sum())
+                away_w = int((sh_home < sh_away).sum())
+                df_wr_sh = pd.DataFrame({
+                    'Esito': ['1 (Casa)','X (Pareggio)','2 (Trasferta)'],
+                    'Conteggio': [home_w, draws, away_w]
+                })
+                df_wr_sh['WinRate %'] = (df_wr_sh['Conteggio'] / total_matches * 100).round(2)
+                df_wr_sh['Odd Minima'] = df_wr_sh['WinRate %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(df_wr_sh, ['WinRate %']), use_container_width=True)
+                st.markdown(f"### Over Goals SH H2H ({total_matches})")
+                goal_lines = [0.5,1.5,2.5,3.5,4.5]
+                over_rows = []
+                for gl in goal_lines:
+                    over_count = int((sh_total_goals > (gl - 0.5)).sum())
+                    over_pct = round(over_count / total_matches * 100, 2)
+                    over_rows.append([f"Over {gl} SH", over_count, over_pct, odd_min_from_percent(over_pct)])
+                df_over_sh = pd.DataFrame(over_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_over_sh, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Under Goals SH H2H ({total_matches})")
+                under_rows = []
+                for gl in goal_lines:
+                    over_count = int((sh_total_goals > (gl - 0.5)).sum())
+                    under_count = int(total_matches - over_count)
+                    under_pct = round(under_count / total_matches * 100, 2)
+                    under_rows.append([f"Under {gl} SH", under_count, under_pct, odd_min_from_percent(under_pct)])
+                df_under_sh = pd.DataFrame(under_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_under_sh, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Doppia Chance SH H2H ({total_matches})")
+                count_1X = int(((sh_home > sh_away) | (sh_home == sh_away)).sum())
+                count_X2 = int(((sh_home < sh_away) | (sh_home == sh_away)).sum())
+                count_12 = int((sh_home != sh_away).sum())
+                dc_sh_df = pd.DataFrame({
+                    'Mercato': ['1X','X2','12'],
+                    'Conteggio': [count_1X, count_X2, count_12]
+                })
+                dc_sh_df['Percentuale %'] = (dc_sh_df['Conteggio'] / total_matches * 100).round(2)
+                dc_sh_df['Odd Minima'] = dc_sh_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(dc_sh_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### To Score SH H2H ({total_matches})")
+                ts_home = int((sh_home >= 1).sum())
+                ts_away = int((sh_away >= 1).sum())
+                ts_sh_df = pd.DataFrame({
+                    'Squadra': ['Home segna SH', 'Away segna SH'],
+                    'Conteggio': [ts_home, ts_away]
+                })
+                ts_sh_df['Percentuale %'] = (ts_sh_df['Conteggio'] / total_matches * 100).round(2)
+                ts_sh_df['Odd Minima'] = ts_sh_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(ts_sh_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### BTTS SH H2H ({total_matches})")
+                btts_yes = int(((sh_home >= 1) & (sh_away >= 1)).sum())
+                btts_no = int(total_matches - btts_yes)
+                btts_sh_df = pd.DataFrame({
+                    'Mercato': ['BTTS SI (SH)','BTTS NO (SH)'],
+                    'Conteggio': [btts_yes, btts_no]
+                })
+                btts_sh_df['Percentuale %'] = (btts_sh_df['Conteggio'] / total_matches * 100).round(2)
+                btts_sh_df['Odd Minima'] = btts_sh_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(btts_sh_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### First to Score (SH) H2H ({total_matches})")
+                if {'home_team_goal_timings','away_team_goal_timings'}.issubset(h2h_odds_filtered.columns):
+                    home_first = away_first = no_goal = simultaneous = 0
+                    for _, row in h2h_odds_filtered.iterrows():
+                        h_min = earliest_second_half_min(row.get('home_team_goal_timings', np.nan))
+                        a_min = earliest_second_half_min(row.get('away_team_goal_timings', np.nan))
+                        if h_min is None and a_min is None:
+                            no_goal += 1
+                        elif h_min is not None and (a_min is None or h_min < a_min):
+                            home_first += 1
+                        elif a_min is not None and (h_min is None or a_min < h_min):
+                            away_first += 1
+                        else:
+                            simultaneous += 1
+                    fts_sh_df = pd.DataFrame({
+                        'Esito': ['Home First (SH)', 'Away First (SH)', 'No Goal (SH)', 'Stesso minuto (SH)'],
+                        'Conteggio': [home_first, away_first, no_goal, simultaneous]
+                    })
+                    fts_sh_df['Percentuale %'] = (fts_sh_df['Conteggio'] / total_matches * 100).round(2)
+                    fts_sh_df['Odd Minima'] = fts_sh_df['Percentuale %'].apply(odd_min_from_percent)
+                    st.dataframe(style_table(fts_sh_df, ['Percentuale %']), use_container_width=True)
+                else:
+                    st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
+
+        # Statistiche FT H2H
+        with st.expander(f"Statistiche FT H2H ({len(h2h_odds_filtered)} partite)"):
+            if h2h_odds_filtered.empty or not {'home_team_goal_count','away_team_goal_count'}.issubset(h2h_odds_filtered.columns):
+                st.info("Per le statistiche FT H2H servono le colonne 'home_team_goal_count' e 'away_team_goal_count'.")
+            else:
+                total_matches = len(h2h_odds_filtered)
+                ft_home = h2h_odds_filtered['home_team_goal_count']
+                ft_away = h2h_odds_filtered['away_team_goal_count']
+                ft_total_goals = h2h_odds_filtered['total_goals_at_full_time']
+
+                st.markdown(f"### Risultati Esatti FT H2H ({total_matches})")
+                betfair_order = ["0 - 0","0 - 1","0 - 2","0 - 3",
+                                 "1 - 0","1 - 1","1 - 2","1 - 3",
+                                 "2 - 0","2 - 1","2 - 2","2 - 3",
+                                 "3 - 0","3 - 1","3 - 2","3 - 3",
+                                 "Any Other Home Win","Any Other Away Win","Any Other Draw"]
+                labels = [ft_cs_label(h, a) for h, a in zip(ft_home, ft_away)]
+                dist = pd.Series(labels).value_counts(dropna=False).reindex(betfair_order, fill_value=0)
+                df_cs_ft = pd.DataFrame({'FT (Betfair)': dist.index, 'Conteggio': dist.values})
+                df_cs_ft['Percentuale %'] = (df_cs_ft['Conteggio'] / total_matches * 100).round(2)
+                df_cs_ft['Odd Minima'] = df_cs_ft['Percentuale %'].apply(odd_min_from_percent)
+                df_cs_ft['order'] = df_cs_ft['FT (Betfair)'].apply(lambda x: betfair_order.index(x))
+                df_cs_ft = df_cs_ft.sort_values('order').drop(columns=['order'])
+                st.dataframe(style_table(df_cs_ft, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### WinRate FT H2H ({total_matches})")
+                home_w = int((ft_home > ft_away).sum())
+                draws = int((ft_home == ft_away).sum())
+                away_w = int((ft_home < ft_away).sum())
+                df_wr_ft = pd.DataFrame({
+                    'Esito': ['1 (Casa)','X (Pareggio)','2 (Trasferta)'],
+                    'Conteggio': [home_w, draws, away_w]
+                })
+                df_wr_ft['WinRate %'] = (df_wr_ft['Conteggio'] / total_matches * 100).round(2)
+                df_wr_ft['Odd Minima'] = df_wr_ft['WinRate %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(df_wr_ft, ['WinRate %']), use_container_width=True)
+                st.markdown(f"### Over Goals FT H2H ({total_matches})")
+                goal_lines = [0.5,1.5,2.5,3.5,4.5]
+                over_rows = []
+                for gl in goal_lines:
+                    over_count = int((ft_total_goals > (gl - 0.5)).sum())
+                    over_pct = round(over_count / total_matches * 100, 2)
+                    over_rows.append([f"Over {gl} FT", over_count, over_pct, odd_min_from_percent(over_pct)])
+                df_over_ft = pd.DataFrame(over_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_over_ft, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Under Goals FT H2H ({total_matches})")
+                under_rows = []
+                for gl in goal_lines:
+                    over_count = int((ft_total_goals > (gl - 0.5)).sum())
+                    under_count = int(total_matches - over_count)
+                    under_pct = round(under_count / total_matches * 100, 2)
+                    under_rows.append([f"Under {gl} FT", under_count, under_pct, odd_min_from_percent(under_pct)])
+                df_under_ft = pd.DataFrame(under_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+                st.dataframe(style_table(df_under_ft, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### Doppia Chance FT H2H ({total_matches})")
+                count_1X = int(((ft_home > ft_away) | (ft_home == ft_away)).sum())
+                count_X2 = int(((ft_home < ft_away) | (ft_home == ft_away)).sum())
+                count_12 = int((ft_home != ft_away).sum())
+                dc_ft_df = pd.DataFrame({
+                    'Mercato': ['1X','X2','12'],
+                    'Conteggio': [count_1X, count_X2, count_12]
+                })
+                dc_ft_df['Percentuale %'] = (dc_ft_df['Conteggio'] / total_matches * 100).round(2)
+                dc_ft_df['Odd Minima'] = dc_ft_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(dc_ft_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### BTTS FT H2H ({total_matches})")
+                btts_yes = int(((ft_home >= 1) & (ft_away >= 1)).sum())
+                btts_no = int(total_matches - btts_yes)
+                btts_ft_df = pd.DataFrame({
+                    'Mercato': ['BTTS SI (FT)','BTTS NO (FT)'],
+                    'Conteggio': [btts_yes, btts_no]
+                })
+                btts_ft_df['Percentuale %'] = (btts_ft_df['Conteggio'] / total_matches * 100).round(2)
+                btts_ft_df['Odd Minima'] = btts_ft_df['Percentuale %'].apply(odd_min_from_percent)
+                st.dataframe(style_table(btts_ft_df, ['Percentuale %']), use_container_width=True)
+                st.markdown(f"### First to Score (FT) H2H ({total_matches})")
+                if {'home_team_goal_timings','away_team_goal_timings'}.issubset(h2h_odds_filtered.columns):
+                    fts_df = compute_first_to_score_ft(h2h_odds_filtered)
+                    st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
+                else:
+                    st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
