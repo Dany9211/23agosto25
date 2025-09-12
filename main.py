@@ -27,8 +27,6 @@ def style_table(df: pd.DataFrame, percent_cols):
         "Gol Subiti": "{:,.0f}",
         "Partite con 2+ Gol Casa": "{:,.0f}",
         "Partite con 2+ Gol Trasferta": "{:,.0f}",
-        "Gol Casa": "{:,.0f}",
-        "Gol Trasferta": "{:,.0f}",
     })
     styler = (df.style
                 .format(fmt)
