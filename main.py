@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 
 st.set_page_config(page_title="Filtri Dati Calcio", layout="wide")
-st.title("⚽ Dashboard Filtri partite squadre Calcio")
+st.title("⚽ Dashboard Filtri partite squadre Calcio⚽")
 st.write("Carica il tuo file CSV per iniziare l'analisi.")
 
 # ---------- Utility ----------
