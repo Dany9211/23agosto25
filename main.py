@@ -454,6 +454,100 @@ def get_last_matches_info(df, home_team, away_team):
             
     return info
 
+def backtest(df, bet_type, market, stake, min_odd=1.01):
+    """
+    Esegue il backtest su un DataFrame filtrato.
+    """
+    results = {
+        'total_bets': 0,
+        'winning_bets': 0,
+        'losing_bets': 0,
+        'pnl': 0.0,
+        'yield_pct': 0.0,
+        'avg_odds': 0.0
+    }
+    
+    if df.empty:
+        return results
+
+    df = df.copy()
+    
+    odds_col = ''
+    outcome_col_home = 'home_team_goal_count'
+    outcome_col_away = 'away_team_goal_count'
+
+    if not {outcome_col_home, outcome_col_away}.issubset(df.columns):
+        st.warning("Colonne 'home_team_goal_count' e 'away_team_goal_count' non presenti per il backtest.")
+        return results
+
+    if market == 'Home':
+        odds_col = 'odds_ft_home_team_win'
+        df['outcome'] = (df[outcome_col_home] > df[outcome_col_away])
+    elif market == 'Draw':
+        odds_col = 'odds_ft_draw'
+        df['outcome'] = (df[outcome_col_home] == df[outcome_col_away])
+    elif market == 'Away':
+        odds_col = 'odds_ft_away_team_win'
+        df['outcome'] = (df[outcome_col_home] < df[outcome_col_away])
+    else:
+        st.error("Mercato di scommessa non valido.")
+        return results
+
+    if odds_col not in df.columns:
+        st.warning(f"Colonna '{odds_col}' non presente per il backtest.")
+        return results
+        
+    df = df[df[odds_col] >= min_odd]
+    df = df.dropna(subset=[odds_col])
+    
+    if df.empty:
+        return results
+
+    total_bets = len(df)
+    total_pnl = 0.0
+    winning_bets = 0
+    total_odds = 0.0
+
+    if bet_type == 'Back':
+        for _, row in df.iterrows():
+            odds = row[odds_col]
+            outcome = row['outcome']
+            total_odds += odds
+            if outcome:
+                total_pnl += (odds - 1) * stake
+                winning_bets += 1
+            else:
+                total_pnl -= stake
+    
+    elif bet_type == 'Lay':
+        for _, row in df.iterrows():
+            odds = row[odds_col]
+            outcome = row['outcome']
+            total_odds += odds
+            if not outcome:
+                # The "lay" bet wins if the event doesn't happen
+                total_pnl += stake
+                winning_bets += 1
+            else:
+                # The "lay" bet loses if the event happens
+                liability = (odds - 1) * stake
+                total_pnl -= liability
+    
+    results['total_bets'] = total_bets
+    results['winning_bets'] = winning_bets
+    results['losing_bets'] = total_bets - winning_bets
+    results['pnl'] = round(total_pnl, 2)
+    
+    total_staked = total_bets * stake
+    if total_staked > 0:
+        results['yield_pct'] = round((total_pnl / total_staked) * 100, 2)
+    else:
+        results['yield_pct'] = 0.0
+    
+    if total_bets > 0:
+        results['avg_odds'] = round(total_odds / total_bets, 2)
+    
+    return results
 
 # ---------- Load ----------
 @st.cache_data
@@ -1463,3 +1557,46 @@ else:
                     st.dataframe(style_table(fts_df, ['Percentuale %']), use_container_width=True)
                 else:
                     st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
+
+# ---------- Backtesting Section ----------
+st.markdown("---")
+st.markdown("## Capitolo 4: Backtesting Quote FT")
+
+if odds_filtered.empty or not {'odds_ft_home_team_win', 'odds_ft_draw', 'odds_ft_away_team_win', 'home_team_goal_count', 'away_team_goal_count'}.issubset(odds_filtered.columns):
+    st.info("Dati insufficienti o colonne quote FT/risultati finali non presenti per eseguire il backtest.")
+else:
+    col_bet_type, col_market = st.columns(2)
+    with col_bet_type:
+        bet_type = st.radio("Seleziona il tipo di scommessa", ('Back', 'Lay'))
+    with col_market:
+        market = st.selectbox("Seleziona il mercato", ('Home', 'Draw', 'Away'))
+    
+    st.markdown("---")
+    
+    col_stake, col_min_odd = st.columns(2)
+    with col_stake:
+        stake = st.number_input("Puntata per scommessa (€)", min_value=0.01, value=1.00, step=0.01)
+    with col_min_odd:
+        min_odd = st.number_input("Quota minima", min_value=1.01, value=1.01, step=0.01)
+
+    st.markdown("---")
+
+    backtest_results = backtest(odds_filtered, bet_type, market, stake, min_odd)
+
+    st.markdown("### Risultati Backtest")
+    
+    results_data = {
+        "Statistica": ["Scommesse Totali", "Scommesse Vincenti", "Scommesse Perdenti", "P&L Totale (€)", "Rendimento (%)", "Quota Media"],
+        "Valore": [
+            f"{backtest_results['total_bets']}",
+            f"{backtest_results['winning_bets']}",
+            f"{backtest_results['losing_bets']}",
+            f"{backtest_results['pnl']:.2f} €",
+            f"{backtest_results['yield_pct']:.2f} %",
+            f"{backtest_results['avg_odds']:.2f}"
+        ]
+    }
+    
+    results_df = pd.DataFrame(results_data)
+    
+    st.table(results_df)
