@@ -9,32 +9,6 @@ st.title("⚽ Dashboard Filtri partite squadre Calcio⚽")
 st.write("Carica il tuo file CSV per iniziare l'analisi.")
 
 # ---------- Utility ----------
-
-# ---------- Helper per confronto Value Bet ----------
-def compare_book_odd_to_odd_min(book_odd, odd_min):
-    try:
-        if odd_min is None or pd.isna(odd_min):
-            return None
-        b = float(book_odd) if book_odd is not None else None
-        o = float(odd_min) if odd_min is not None else None
-        if b is None or o is None:
-            return None
-        if abs(b - o) < 1e-6:
-            return None
-        return 'BACK' if b > o else 'LAY'
-    except Exception:
-        return None
-
-def format_edge_message(market_name, book_odd, odd_min):
-    if odd_min is None or pd.isna(odd_min):
-        return f"{market_name}: Odd minima non disponibile."
-    res = compare_book_odd_to_odd_min(book_odd, odd_min)
-    if res == 'BACK':
-        return f"{market_name}: BOOK {book_odd:.2f}  >  OddMin {odd_min:.2f} → VALUE (BACK)"
-    elif res == 'LAY':
-        return f"{market_name}: BOOK {book_odd:.2f}  <  OddMin {odd_min:.2f} → VALUE (LAY)"
-    else:
-        return f"{market_name}: BOOK {book_odd:.2f} ~= OddMin {odd_min:.2f} → Nessun edge"
 def odd_min_from_percent(p: float):
     if p and p > 0:
         return round(100.0 / p, 2)
@@ -1701,55 +1675,6 @@ else:
     ft_market_stats = calculate_full_time_market_stats_live(live_filtered_df)
     
     st.markdown("#### B. Statistiche Full Time (Risultato FT del Campione Live Filtrato)")
-
-# ---------- Value Bet: confronto Book vs Odd Minima (FT) ----------
-try:
-    odd_min_home = odd_min_draw = odd_min_away = None
-    odd_min_over25 = odd_min_under25 = odd_min_btts_yes = None
-
-    if ft_market_stats and 'WinRate' in ft_market_stats:
-        wr_df = ft_market_stats['WinRate']
-        if 'Odd Minima' in wr_df.columns:
-            try:
-                odd_min_home = float(wr_df.loc[wr_df['Esito'].str.contains('1 FT', na=False), 'Odd Minima'].values[0])
-            except Exception: pass
-            try:
-                odd_min_draw = float(wr_df.loc[wr_df['Esito'].str.contains('X FT', na=False), 'Odd Minima'].values[0])
-            except Exception: pass
-            try:
-                odd_min_away = float(wr_df.loc[wr_df['Esito'].str.contains('2 FT', na=False), 'Odd Minima'].values[0])
-            except Exception: pass
-
-    if ft_market_stats and 'Over FT' in ft_market_stats:
-        over_df = ft_market_stats['Over FT']
-        rows = over_df[over_df['Mercato'].str.contains('Over 2.5', na=False)]
-        if not rows.empty:
-            odd_min_over25 = float(rows['Odd Minima'].values[0])
-
-    if ft_market_stats and 'Under FT' in ft_market_stats:
-        under_df = ft_market_stats['Under FT']
-        rows = under_df[under_df['Mercato'].str.contains('Under 2.5', na=False)]
-        if not rows.empty:
-            odd_min_under25 = float(rows['Odd Minima'].values[0])
-
-    if ft_market_stats and 'BTTS FT' in ft_market_stats:
-        btts_df = ft_market_stats['BTTS FT']
-        rows = btts_df[btts_df['Mercato'].str.contains('BTTS SI', na=False)]
-        if not rows.empty:
-            odd_min_btts_yes = float(rows['Odd Minima'].values[0])
-
-    st.markdown("### Value Bet Check (confronto Book vs Odd Minima del campione filtrato)")
-    vb_col1, vb_col2 = st.columns(2)
-    with vb_col1:
-        st.write(format_edge_message("FT - Home Win", book_home_odd, odd_min_home))
-        st.write(format_edge_message("FT - Draw", book_draw_odd, odd_min_draw))
-        st.write(format_edge_message("FT - Away Win", book_away_odd, odd_min_away))
-    with vb_col2:
-        st.write(format_edge_message("FT - Over 2.5", book_over25_odd, odd_min_over25))
-        st.write(format_edge_message("FT - Under 2.5", book_under25_odd, odd_min_under25))
-        st.write(format_edge_message("FT - BTTS SI", book_btts_yes_odd, odd_min_btts_yes))
-except Exception as e:
-    st.warning(f"Impossibile completare il confronto Value Bet: {e}")
     
     if ft_market_stats:
         
@@ -1803,19 +1728,4 @@ except Exception as e:
 
     st.markdown("---")
     st.markdown("#### D. Anteprima Partite Live Trovate")
-
-# ---------- Value Bet Checker (NON filtrante) ----------
-st.sidebar.markdown("---")
-st.sidebar.subheader("Value Bet Checker (solo confronto, NON filtra)")
-
-book_home_odd = st.sidebar.number_input("Book Quota Home (BACK)", min_value=1.01, value=2.00, step=0.01, key="book_home_odd")
-book_draw_odd = st.sidebar.number_input("Book Quota Draw (BACK)", min_value=1.01, value=3.50, step=0.01, key="book_draw_odd")
-book_away_odd = st.sidebar.number_input("Book Quota Away (BACK)", min_value=1.01, value=4.00, step=0.01, key="book_away_odd")
-
-st.sidebar.markdown("**Mercati Soggetti a confronto**")
-book_over25_odd = st.sidebar.number_input("Book Quota Over 2.5 (BACK)", min_value=1.01, value=1.85, step=0.01, key="book_over25_odd")
-book_under25_odd = st.sidebar.number_input("Book Quota Under 2.5 (BACK)", min_value=1.01, value=2.10, step=0.01, key="book_under25_odd")
-book_btts_yes_odd = st.sidebar.number_input("Book Quota BTTS SI (BACK)", min_value=1.01, value=1.90, step=0.01, key="book_btts_yes_odd")
-
-st.sidebar.caption("Regola: se Quota Book > Odd Minima statistica → VALUE BET (BACK). Se Quota Book < Odd Minima → VALUE (LAY).")
     st.dataframe(live_filtered_df[['date', 'home_team_name', 'away_team_name', 'HT Score', 'home_team_goal_count', 'away_team_goal_count', 'home_team_goal_timings', 'away_team_goal_timings', 'remaining_total_goals']].sort_values(by='date', ascending=False), use_container_width=True)
