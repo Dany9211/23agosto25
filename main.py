@@ -455,270 +455,13 @@ def get_last_matches_info(df, home_team, away_team):
             
     return info
 
-def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
-    """
-    Esegue il backtest su un DataFrame filtrato per un mercato specifico (Home/Draw/Away/Over 2.5/BTTS Yes)
-    e un tipo di scommessa (Back/Lay).
-    Nota: i filtri min_odd e max_odd vengono ignorati qui, il filtraggio deve essere fatto a monte sul DF.
-    """
-    results = {
-        'total_bets': 0,
-        'winning_bets': 0,
-        'losing_bets': 0,
-        'pnl': 0.0,
-        'yield_pct': 0.0,
-        'avg_odds': 0.0
-    }
-    
-    if df.empty:
-        return results
-
-    df = df.copy()
-    
-    odds_col_map = {
-        'Home': 'odds_ft_home_team_win',
-        'Draw': 'odds_ft_draw',
-        'Away': 'odds_ft_away_team_win',
-        'Over 2.5': 'odds_ft_over25', # Assumendo che esista una colonna per l'Over 2.5
-        'BTTS SI': 'odds_ft_btts_yes', # Colonna ipotetica per BTTS Yes (che verrà calcolata se non presente)
-    }
-    
-    odds_col = odds_col_map.get(market)
-    
-    # 1. Definizione dell'outcome e della colonna quote
-    outcome_col_home = 'home_team_goal_count'
-    outcome_col_away = 'away_team_goal_count'
-
-    required_cols_base = {outcome_col_home, outcome_col_away}
-    
-    if not required_cols_base.issubset(df.columns):
-        return results
-    
-    # Gestione della colonna quote e dell'outcome
-    if market in ['Home', 'Draw', 'Away', 'Over 2.5'] and odds_col not in df.columns:
-        return results
-
-    df['total_goals'] = df[outcome_col_home] + df[outcome_col_away]
-
-    # Determinazione dell'outcome (True se il mercato è vincente, False altrimenti)
-    if market == 'Home':
-        df['outcome'] = (df[outcome_col_home] > df[outcome_col_away])
-    elif market == 'Draw':
-        df['outcome'] = (df[outcome_col_home] == df[outcome_col_away])
-    elif market == 'Away':
-        df['outcome'] = (df[outcome_col_home] < df[outcome_col_away])
-    elif market == 'Over 2.5':
-        df['outcome'] = (df['total_goals'] >= 3)
-    elif market == 'BTTS SI':
-        if 'odds_ft_btts_yes' not in df.columns:
-            df['outcome'] = (df[outcome_col_home] >= 1) & (df[outcome_col_away] >= 1)
-            if 'odds_ft_over25' in df.columns:
-                odds_col = 'odds_ft_over25'
-            else:
-                return results
-        else:
-            odds_col = 'odds_ft_btts_yes'
-            df['outcome'] = (df[outcome_col_home] >= 1) & (df[outcome_col_away] >= 1)
-    else:
-        return results
-
-    df = df.dropna(subset=[odds_col, 'outcome'])
-    
-    if df.empty:
-        return results
-
-    total_bets = len(df)
-    total_pnl = 0.0
-    winning_bets = 0
-    total_odds = 0.0
-    
-    stake = 1.00 # Stake fisso per il backtest riepilogativo
-
-    # 3. Calcolo P&L
-    if bet_type == 'Back':
-        for _, row in df.iterrows():
-            odds = row[odds_col]
-            outcome = row['outcome']
-            total_odds += odds
-            if outcome:
-                total_pnl += (odds - 1) * stake
-                winning_bets += 1
-            else:
-                total_pnl -= stake
-    
-    elif bet_type == 'Lay':
-        for _, row in df.iterrows():
-            odds = row[odds_col]
-            outcome = row['outcome']
-            total_odds += odds
-            # Calcolo P&L Lay (Stake è la vincita potenziale se l'evento non accade)
-            if not outcome:
-                # La scommessa "lay" vince se l'evento NON accade
-                total_pnl += stake
-                winning_bets += 1
-            else:
-                # La scommessa "lay" perde se l'evento accade (pari alla liability)
-                liability = (odds - 1) * stake
-                total_pnl -= liability
-    
-    # 4. Preparazione dei risultati
-    results['total_bets'] = total_bets
-    results['winning_bets'] = winning_bets
-    results['losing_bets'] = total_bets - winning_bets
-    results['pnl'] = total_pnl
-    
-    total_staked = total_bets * stake 
-    if total_staked > 0:
-        results['yield_pct'] = (total_pnl / total_staked) * 100
-    else:
-        results['yield_pct'] = 0.0
-    
-    if total_bets > 0:
-        results['avg_odds'] = total_odds / total_bets
-    
-    return results
-
-def display_all_backtests(df, range_filters, universal_filter_market=None):
-    """
-    Esegue e visualizza il backtest per tutte le combinazioni specificate,
-    applicando un eventuale filtro universale.
-    """
-    
-    # Mappa delle colonne quote per il filtro universale
-    odds_col_map = {
-        'Home': 'odds_ft_home_team_win',
-        'Draw': 'odds_ft_draw',
-        'Away': 'odds_ft_away_team_win',
-        'Over 2.5': 'odds_ft_over25',
-        'BTTS SI': 'odds_ft_btts_yes',
-    }
-    
-    df_to_backtest = df.copy()
-    filter_applied_label = "Nessuno"
-    
-    # Valori di quota da mostrare nella colonna Filtro Rilevante
-    min_o_display = 1.01
-    max_o_display = 100.00
-    
-    # ******* APPLICAZIONE FILTRO UNIVERSALE *******
-    if universal_filter_market and universal_filter_market != 'Nessuno':
-        market_key = universal_filter_market.replace(" ", "_")
-        col_name = odds_col_map.get(universal_filter_market)
-        min_o = range_filters.get(f'min_{market_key}', 1.01)
-        max_o = range_filters.get(f'max_{market_key}', 100.00)
-        
-        min_o_display = min_o
-        max_o_display = max_o
-
-        if col_name and col_name in df_to_backtest.columns:
-            df_to_backtest = df_to_backtest[
-                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
-            ]
-            filter_applied_label = f"{universal_filter_market} (da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
-        elif universal_filter_market == 'BTTS SI' and 'odds_ft_over25' in df_to_backtest.columns:
-            # Usa Over 2.5 come proxy per il filtro se BTTS SI manca
-            col_name = 'odds_ft_over25'
-            df_to_backtest = df_to_backtest[
-                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
-            ]
-            filter_applied_label = f"BTTS SI (Filtro proxy O2.5 da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
-        else:
-             st.warning(f"Il filtro universale '{universal_filter_market}' non è stato applicato perché la colonna quote non è presente nel dataset.")
-             
-    st.markdown(f"**Filtro Universale Appplicato:** {filter_applied_label}")
-    st.markdown("### Riepilogo Backtesting (Stake 1.00 €)")
-    
-    if df_to_backtest.empty:
-        st.info("Nessuna partita rimanente dopo l'applicazione del filtro universale.")
-        return
-
-    markets_to_test = ['Home', 'Draw', 'Away', 'Over 2.5', 'BTTS SI']
-    bet_types = ['Back', 'Lay']
-    stake = 1.00 # Stake fisso per il riepilogo
-
-    all_results = []
-    
-    required_odds_cols = {
-        'Home': 'odds_ft_home_team_win',
-        'Draw': 'odds_ft_draw',
-        'Away': 'odds_ft_away_team_win',
-        'Over 2.5': 'odds_ft_over25',
-        'BTTS SI': 'odds_ft_btts_yes',
-    }
-
-    for bet_type in bet_types:
-        for market in markets_to_test:
-            
-            # Controlla la presenza delle colonne necessarie
-            odds_col = required_odds_cols.get(market)
-            
-            # Se la colonna quote per i mercati principali manca, salta il test
-            if odds_col not in df_to_backtest.columns and market != 'BTTS SI':
-                continue
-                
-            # Se è BTTS SI, controlliamo se le colonne necessarie sono presenti.
-            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df_to_backtest.columns and required_odds_cols['Over 2.5'] not in df_to_backtest.columns:
-                continue
-
-            # Il backtest viene eseguito sul DF già filtrato universalmente
-            results = backtest(df_to_backtest, bet_type, market, stake)
-            
-            if results['total_bets'] == 0:
-                continue
-
-            # Calcola il win rate come percentuale
-            win_rate_pct = 0.0
-            if results['total_bets'] > 0:
-                win_rate_pct = (results['winning_bets'] / results['total_bets']) * 100
-            
-            # Aggiungi un avviso se le quote BTTS SI sono simulate
-            mercato_label = f"{bet_type} {market}"
-            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df.columns and required_odds_cols['Over 2.5'] in df.columns:
-                 mercato_label += " (Quote O2.5 usate come proxy)"
-
-            all_results.append({
-                'Mercato': mercato_label,
-                # Usa i valori del filtro universale per la visualizzazione, se impostato.
-                'Filtro del Mercato Rilevante': f"da {min_o_display:.2f} a {max_o_display:.2f}", 
-                'Scommesse Totali': results['total_bets'],
-                'Vincenti': results['winning_bets'],
-                'Tasso di Vittoria %': win_rate_pct,
-                'Quota Media': results['avg_odds'],
-                'P&L (€)': results['pnl'],
-                'Rendimento %': results['yield_pct'],
-            })
-
-    results_df = pd.DataFrame(all_results)
-    
-    if results_df.empty:
-        st.warning("Nessun backtest eseguito. Controlla che le colonne 'odds_ft_*' e 'home/away_team_goal_count' siano presenti nel file.")
-        return
-        
-    # Styling per la tabella di riepilogo
-    styler = (results_df.style
-                .format({
-                    'Quota Media': "{:.2f}",
-                    'P&L (€)': "€ {:.2f}",
-                    'Tasso di Vittoria %': "{:.2f}%",
-                    'Rendimento %': "{:.2f}%"
-                })
-                .background_gradient(subset=['P&L (€)'], cmap="RdYlGn")
-                .set_properties(**{"text-align": "center"})
-                .set_table_styles([{ 'selector': 'th', 'props': 'text-align: center;' }])
-            )
-            
-    st.dataframe(styler, use_container_width=True)
-
-
-# ---------- Dynamic Live Analysis Functions ----------
-
 def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins, away_goal_mins):
     """
     Filtra il dataset storico per trovare partite che erano nello stesso stato live
     al minuto specificato.
     """
     
-    if not {'home_team_goal_count_half_time', 'away_team_goal_count_half_time', 'home_team_goal_timings', 'away_team_goal_timings'}.issubset(df.columns):
+    if not {'home_team_goal_count_half_time', 'away_team_goal_count_half_time', 'home_team_goal_timings', 'away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count'}.issubset(df.columns):
         st.error("Colonne dati gol/minuti mancanti per l'analisi live.")
         return pd.DataFrame()
 
@@ -740,13 +483,9 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
                 count += 1
         return count
 
-    # 1. Filtra per Minuto Minimo: Escludi partite che non hanno raggiunto il minuto attuale
-    # Si assume che il dataset non abbia un campo "minuto finale".
-    # Filtro solo sulle partite che avevano almeno il numero di gol attuali
-
     temp_df = df.copy()
 
-    # 2. Filtra per Risultato al minuto attuale
+    # 1. Filtra per Risultato al minuto attuale
     temp_df['home_goals_at_live_min'] = temp_df['home_team_goal_timings'].apply(lambda x: get_goal_count_at_minute(x, current_min))
     temp_df['away_goals_at_live_min'] = temp_df['away_team_goal_timings'].apply(lambda x: get_goal_count_at_minute(x, current_min))
 
@@ -756,85 +495,119 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
         (temp_df['away_goals_at_live_min'] == away_score)
     ].copy()
     
-    # 3. Filtra per Goal Timing Specifici (solo se forniti)
-    # Questa è una semplificazione, ma controlla che le stringhe dei minuti gol siano contenute
-    # nella colonna goal_timings (ignorando i gol dopo il minuto attuale, già gestiti dal count)
+    # 2. Filtra per Goal Timing Specifici (solo se forniti)
     
     if home_goal_mins:
-        required_home_tokens = [t.strip() for t in home_goal_mins.split(',') if t.strip()]
+        # Pulisce i token di input per la ricerca esatta
+        required_home_tokens = [re.escape(t.strip()) for t in home_goal_mins.split(',') if t.strip()]
         for token in required_home_tokens:
-            filtered_df = filtered_df[filtered_df['home_team_goal_timings'].astype(str).str.contains(re.escape(token))]
+            filtered_df = filtered_df[filtered_df['home_team_goal_timings'].astype(str).str.contains(token)]
 
     if away_goal_mins:
-        required_away_tokens = [t.strip() for t in away_goal_mins.split(',') if t.strip()]
+        required_away_tokens = [re.escape(t.strip()) for t in away_goal_mins.split(',') if t.strip()]
         for token in required_away_tokens:
-            filtered_df = filtered_df[filtered_df['away_team_goal_timings'].astype(str).str.contains(re.escape(token))]
+            filtered_df = filtered_df[filtered_df['away_team_goal_timings'].astype(str).str.contains(token)]
+            
+    # Calcola i gol residui per le partite filtrate
+    filtered_df['remaining_home_goals'] = filtered_df['home_team_goal_count'] - filtered_df['home_goals_at_live_min']
+    filtered_df['remaining_away_goals'] = filtered_df['away_team_goal_count'] - filtered_df['away_goals_at_live_min']
+    filtered_df['remaining_total_goals'] = filtered_df['remaining_home_goals'] + filtered_df['remaining_away_goals']
 
 
     return filtered_df
+
+def calculate_remaining_market_stats(df_live):
+    """
+    Calcola le statistiche di mercato FT (WinRate, Over/Under, DC, BTTS)
+    basate sui GOL RESIDUI.
+    """
+    if df_live.empty or 'remaining_total_goals' not in df_live.columns:
+        return pd.DataFrame()
+    
+    total_matches = len(df_live)
+    
+    rem_home = df_live['remaining_home_goals']
+    rem_away = df_live['remaining_away_goals']
+    rem_total = df_live['remaining_total_goals']
+    
+    all_rows = []
+    
+    # 1. WinRate Residuo (Chi vince i gol rimanenti)
+    home_w_rem = (rem_home > rem_away).sum()
+    draws_rem = (rem_home == rem_away).sum()
+    away_w_rem = (rem_home < rem_away).sum()
+    
+    df_wr_rem = pd.DataFrame({
+        'Mercato': ['1 R (Casa vince i gol rimanenti)','X R (Pareggio nei gol rimanenti)','2 R (Trasferta vince i gol rimanenti)'],
+        'Conteggio': [home_w_rem, draws_rem, away_w_rem]
+    })
+    df_wr_rem['Percentuale %'] = (df_wr_rem['Conteggio'] / total_matches * 100).round(2)
+    df_wr_rem['Odd Minima'] = df_wr_rem['Percentuale %'].apply(odd_min_from_percent)
+    all_rows.append(df_wr_rem)
+    
+    # 2. Doppia Chance Residua
+    count_1X_rem = int(((rem_home > rem_away) | (rem_home == rem_away)).sum())
+    count_X2_rem = int(((rem_home < rem_away) | (rem_home == rem_away)).sum())
+    count_12_rem = int((rem_home != rem_away).sum())
+    
+    df_dc_rem = pd.DataFrame({
+        'Mercato': ['1X R','X2 R','12 R'],
+        'Conteggio': [count_1X_rem, count_X2_rem, count_12_rem]
+    })
+    df_dc_rem['Percentuale %'] = (df_dc_rem['Conteggio'] / total_matches * 100).round(2)
+    df_dc_rem['Odd Minima'] = df_dc_rem['Percentuale %'].apply(odd_min_from_percent)
+    all_rows.append(df_dc_rem)
+
+    # 3. Over/Under Residuo
+    goal_lines = [0.5, 1.5, 2.5, 3.5]
+    over_rows = []
+    under_rows = []
+    
+    for gl in goal_lines:
+        # Over
+        over_count = int((rem_total > (gl - 0.5)).sum())
+        over_pct = round(over_count / total_matches * 100, 2)
+        over_rows.append([f"Over {gl} R (Gol Residui)", over_count, over_pct, odd_min_from_percent(over_pct)])
+        
+        # Under
+        under_count = int(total_matches - over_count)
+        under_pct = round(under_count / total_matches * 100, 2)
+        under_rows.append([f"Under {gl} R (Gol Residui)", under_count, under_pct, odd_min_from_percent(under_pct)])
+
+    df_over_rem = pd.DataFrame(over_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+    df_under_rem = pd.DataFrame(under_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+    all_rows.append(df_over_rem)
+    all_rows.append(df_under_rem)
+
+    # 4. BTTS SI/NO Residuo (Entrambe segnano ALMENO un altro gol)
+    # BTTS SI R: (Home segna >= 1 gol residuo) AND (Away segna >= 1 gol residuo)
+    btts_yes_rem = int(((rem_home >= 1) & (rem_away >= 1)).sum())
+    btts_no_rem = int(total_matches - btts_yes_rem)
+    
+    df_btts_rem = pd.DataFrame({
+        'Mercato': ['BTTS SI R (Entrambe segnano ancora)','BTTS NO R (Almeno una non segna ancora)'],
+        'Conteggio': [btts_yes_rem, btts_no_rem]
+    })
+    df_btts_rem['Percentuale %'] = (df_btts_rem['Conteggio'] / total_matches * 100).round(2)
+    df_btts_rem['Odd Minima'] = df_btts_rem['Percentuale %'].apply(odd_min_from_percent)
+    all_rows.append(df_btts_rem)
+    
+    return pd.concat(all_rows, ignore_index=True)
 
 def calculate_remaining_timeframe_stats(df_live, current_min):
     """
     Calcola le statistiche dei gol segnati solo nel tempo residuo.
     """
     if df_live.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     total_live_matches = len(df_live)
     
-    # Colonne per i risultati finali per il calcolo delle statistiche restanti
-    ft_home = df_live['home_team_goal_count']
-    ft_away = df_live['away_team_goal_count']
-    
-    # Gol segnati DOPO il minuto attuale
-    # Usiamo le colonne calcolate nella funzione filter_live_matches:
-    home_score_at_min = df_live['home_goals_at_live_min']
-    away_score_at_min = df_live['away_goals_at_live_min']
-    
-    remaining_home_goals = ft_home - home_score_at_min
-    remaining_away_goals = ft_away - away_score_at_min
-    remaining_total_goals = remaining_home_goals + remaining_away_goals
-    
-    # 1. Statistiche Finali Residue
-    data_final = []
-    
-    # Over/Under 0.5 (Any Goal Remaining)
-    remaining_05_over = (remaining_total_goals >= 1).sum()
-    pct_05_over = round((remaining_05_over / total_live_matches) * 100, 2)
-    data_final.append([f"Over 0.5 (Rem.)", remaining_05_over, pct_05_over, odd_min_from_percent(pct_05_over)])
-    
-    remaining_05_under = total_live_matches - remaining_05_over
-    pct_05_under = round((remaining_05_under / total_live_matches) * 100, 2)
-    data_final.append([f"Under 0.5 (Rem.)", remaining_05_under, pct_05_under, odd_min_from_percent(pct_05_under)])
-    
-    # Over/Under 1.5 Remaining Goals
-    remaining_15_over = (remaining_total_goals >= 2).sum()
-    pct_15_over = round((remaining_15_over / total_live_matches) * 100, 2)
-    data_final.append([f"Over 1.5 (Rem.)", remaining_15_over, pct_15_over, odd_min_from_percent(pct_15_over)])
-    
-    remaining_15_under = total_live_matches - remaining_15_over
-    pct_15_under = round((remaining_15_under / total_live_matches) * 100, 2)
-    data_final.append([f"Under 1.5 (Rem.)", remaining_15_under, pct_15_under, odd_min_from_percent(pct_15_under)])
-    
-    # To Score Remaining
-    home_score_rem = (remaining_home_goals >= 1).sum()
-    pct_home_rem = round((home_score_rem / total_live_matches) * 100, 2)
-    data_final.append([f"Home Segna (Rem.)", home_score_rem, pct_home_rem, odd_min_from_percent(pct_home_rem)])
-
-    away_score_rem = (remaining_away_goals >= 1).sum()
-    pct_away_rem = round((away_score_rem / total_live_matches) * 100, 2)
-    data_final.append([f"Away Segna (Rem.)", away_score_rem, pct_away_rem, odd_min_from_percent(pct_away_rem)])
-
-    df_final_stats = pd.DataFrame(data_final, columns=['Mercato', 'Conteggio', 'Percentuale %', 'Odd Minima'])
-
-
-    # 2. Distribuzione Gol per Timeframe (solo minuti futuri)
+    # 1. Distribuzione Gol per Timeframe (solo minuti futuri)
     
     buckets_15 = gen_buckets(15)
     buckets_5 = gen_buckets(5)
-    
-    timeframe_rows = []
-    
+        
     # Funzione Helper per processare i gol futuri
     def count_future_goals_by_bucket(goal_timings_cell, current_min, step):
         buckets = gen_buckets(step)
@@ -876,14 +649,15 @@ def calculate_remaining_timeframe_stats(df_live, current_min):
     # Aggregazione Timeframe 15 minuti
     tf15_data = []
     for b in buckets_15:
-        if b in ['0-15', '16-30', '31-45']:
-            continue # Ignora i bucket passati
+        # Ignora i bucket che sono completamente passati
+        min_end = int(b.split('-')[-1].replace('45+','45').replace('90+','90'))
+        if min_end < current_min and b not in ['45+', '90+']:
+             continue
             
         home_g = df_future_goals['15_H'].apply(lambda x: x.get(b, 0)).sum()
         away_g = df_future_goals['15_A'].apply(lambda x: x.get(b, 0)).sum()
-        total_g = home_g + away_g
         
-        # Conteggio partite con almeno 1 gol in quel bucket
+        # Conteggio partite con almeno 1 gol futuro in quel bucket
         matches_with_goal = df_future_goals.apply(lambda row: 1 if (row['15_H'].get(b, 0) + row['15_A'].get(b, 0)) >= 1 else 0, axis=1).sum()
         
         pct_goal = round((matches_with_goal / total_live_matches) * 100, 2) if total_live_matches else 0.0
@@ -898,10 +672,11 @@ def calculate_remaining_timeframe_stats(df_live, current_min):
     # Aggregazione Timeframe 5 minuti
     tf5_data = []
     for b in buckets_5:
-        # Ignora i bucket passati
-        min_start = int(b.split('-')[0].replace('45+', '46').replace('90+', '91'))
-        if min_start <= current_min and b not in ['45+', '90+']:
-            continue
+        # Ignora i bucket che sono completamente passati
+        # Questo è un filtro approssimativo, ma gestisce la maggior parte dei casi
+        min_end = int(b.split('-')[-1].replace('45+','45').replace('90+','90'))
+        if min_end < current_min and b not in ['45+', '90+']:
+             continue
             
         home_g = df_future_goals['5_H'].apply(lambda x: x.get(b, 0)).sum()
         away_g = df_future_goals['5_A'].apply(lambda x: x.get(b, 0)).sum()
@@ -918,140 +693,8 @@ def calculate_remaining_timeframe_stats(df_live, current_min):
     ])
 
 
-    return df_final_stats, df_tf15[df_tf15['Partite con Gol (Futuro)'] > 0], df_tf5[df_tf5['Partite con Gol (Futuro)'] > 0]
+    return df_tf15[df_tf15['Partite con Gol (Futuro)'] > 0], df_tf5[df_tf5['Partite con Gol (Futuro)'] > 0]
 
-
-# ---------- Backtesting Section (Automatic Display) ----------
-def display_all_backtests(df, range_filters, universal_filter_market=None):
-    """
-    Esegue e visualizza il backtest per tutte le combinazioni specificate,
-    applicando un eventuale filtro universale.
-    """
-    
-    # Mappa delle colonne quote per il filtro universale
-    odds_col_map = {
-        'Home': 'odds_ft_home_team_win',
-        'Draw': 'odds_ft_draw',
-        'Away': 'odds_ft_away_team_win',
-        'Over 2.5': 'odds_ft_over25',
-        'BTTS SI': 'odds_ft_btts_yes',
-    }
-    
-    df_to_backtest = df.copy()
-    filter_applied_label = "Nessuno"
-    
-    # Valori di quota da mostrare nella colonna Filtro Rilevante
-    min_o_display = 1.01
-    max_o_display = 100.00
-    
-    # ******* APPLICAZIONE FILTRO UNIVERSALE *******
-    if universal_filter_market and universal_filter_market != 'Nessuno':
-        market_key = universal_filter_market.replace(" ", "_")
-        col_name = odds_col_map.get(universal_filter_market)
-        min_o = range_filters.get(f'min_{market_key}', 1.01)
-        max_o = range_filters.get(f'max_{market_key}', 100.00)
-        
-        min_o_display = min_o
-        max_o_display = max_o
-
-        if col_name and col_name in df_to_backtest.columns:
-            df_to_backtest = df_to_backtest[
-                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
-            ]
-            filter_applied_label = f"{universal_filter_market} (da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
-        elif universal_filter_market == 'BTTS SI' and 'odds_ft_over25' in df_to_backtest.columns:
-            # Usa Over 2.5 come proxy per il filtro se BTTS SI manca
-            col_name = 'odds_ft_over25'
-            df_to_backtest = df_to_backtest[
-                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
-            ]
-            filter_applied_label = f"BTTS SI (Filtro proxy O2.5 da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
-        else:
-             st.warning(f"Il filtro universale '{universal_filter_market}' non è stato applicato perché la colonna quote non è presente nel dataset.")
-             
-    st.markdown(f"**Filtro Universale Appplicato:** {filter_applied_label}")
-    st.markdown("### Riepilogo Backtesting (Stake 1.00 €)")
-    
-    if df_to_backtest.empty:
-        st.info("Nessuna partita rimanente dopo l'applicazione del filtro universale.")
-        return
-
-    markets_to_test = ['Home', 'Draw', 'Away', 'Over 2.5', 'BTTS SI']
-    bet_types = ['Back', 'Lay']
-    stake = 1.00 # Stake fisso per il riepilogo
-
-    all_results = []
-    
-    required_odds_cols = {
-        'Home': 'odds_ft_home_team_win',
-        'Draw': 'odds_ft_draw',
-        'Away': 'odds_ft_away_team_win',
-        'Over 2.5': 'odds_ft_over25',
-        'BTTS SI': 'odds_ft_btts_yes',
-    }
-
-    for bet_type in bet_types:
-        for market in markets_to_test:
-            
-            # Controlla la presenza delle colonne necessarie
-            odds_col = required_odds_cols.get(market)
-            
-            # Se la colonna quote per i mercati principali manca, salta il test
-            if odds_col not in df_to_backtest.columns and market != 'BTTS SI':
-                continue
-                
-            # Se è BTTS SI, controlliamo se le colonne necessarie sono presenti.
-            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df_to_backtest.columns and required_odds_cols['Over 2.5'] not in df_to_backtest.columns:
-                continue
-
-            # Il backtest viene eseguito sul DF già filtrato universalmente
-            results = backtest(df_to_backtest, bet_type, market, stake)
-            
-            if results['total_bets'] == 0:
-                continue
-
-            # Calcola il win rate come percentuale
-            win_rate_pct = 0.0
-            if results['total_bets'] > 0:
-                win_rate_pct = (results['winning_bets'] / results['total_bets']) * 100
-            
-            # Aggiungi un avviso se le quote BTTS SI sono simulate
-            mercato_label = f"{bet_type} {market}"
-            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df.columns and required_odds_cols['Over 2.5'] in df.columns:
-                 mercato_label += " (Quote O2.5 usate come proxy)"
-
-            all_results.append({
-                'Mercato': mercato_label,
-                # Usa i valori del filtro universale per la visualizzazione, se impostato.
-                'Filtro del Mercato Rilevante': f"da {min_o_display:.2f} a {max_o_display:.2f}", 
-                'Scommesse Totali': results['total_bets'],
-                'Vincenti': results['winning_bets'],
-                'Tasso di Vittoria %': win_rate_pct,
-                'Quota Media': results['avg_odds'],
-                'P&L (€)': results['pnl'],
-                'Rendimento %': results['yield_pct'],
-            })
-
-    results_df = pd.DataFrame(all_results)
-    
-    if results_df.empty:
-        st.warning("Nessun backtest eseguito. Controlla che le colonne 'odds_ft_*' e 'home/away_team_goal_count' siano presenti nel file.")
-        return
-        
-    # Styling per la tabella di riepilogo
-    styler = (results_df.style
-                .format({
-                    'Quota Media': "{:.2f}",
-                    'P&L (€)': "€ {:.2f}",
-                    'Tasso di Vittoria %': "{:.2f}%",
-                    'Rendimento %': "{:.2f}%"
-                })
-                .background_gradient(subset=['P&L (€)'], cmap="RdYlGn")
-                .set_properties(**{"text-align": "center"})
-                .set_table_styles([{ 'selector': 'th', 'props': 'text-align: center;' }])
-            )
-            
-    st.dataframe(styler, use_container_width=True)
 
 # ---------- Load ----------
 @st.cache_data
@@ -1067,7 +710,7 @@ def load_data(uploaded_file):
         'home_team_goal_count','away_team_goal_count',
         'home_team_shots_on_target','away_team_shots_on_target',
         'odds_ft_home_team_win','odds_ft_draw','odds_ft_away_team_win',
-        'odds_ft_over25','odds_ft_btts_yes', # Aggiunto BTTS SI
+        'odds_ft_over25','odds_ft_btts_yes', # Manteniamo le colonne quote se presenti per i filtri generali
         'anno','Game Week'
     ]
     for col in num_cols:
@@ -2064,80 +1707,10 @@ else:
                 else:
                     st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
 
-# ---------- Backtesting Section (Automatic Display) ----------
+    
+# ---------- Capitolo 4: Analisi Live Dinamica ----------
 st.markdown("---")
-st.markdown("## Capitolo 4: Backtesting Quote FT")
-
-# --- UI per i filtri delle quote (nuova sezione) ---
-range_filters = {}
-markets_for_backtest = ['Home', 'Draw', 'Away']
-
-with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
-    
-    col_h, col_x, col_a = st.columns(3)
-    
-    with col_h:
-        st.markdown("**Home Win**")
-        range_filters['min_Home'] = st.number_input("Min Home", min_value=1.01, value=1.01, step=0.01, key='bt_min_home')
-        range_filters['max_Home'] = st.number_input("Max Home", min_value=1.01, value=100.00, step=0.01, key='bt_max_home')
-        
-    with col_x:
-        st.markdown("**Draw (X)**")
-        range_filters['min_Draw'] = st.number_input("Min Draw", min_value=1.01, value=1.01, step=0.01, key='bt_min_draw')
-        range_filters['max_Draw'] = st.number_input("Max Draw", min_value=1.01, value=100.00, step=0.01, key='bt_max_draw')
-
-    with col_a:
-        st.markdown("**Away Win**")
-        range_filters['min_Away'] = st.number_input("Min Away", min_value=1.01, value=1.01, step=0.01, key='bt_min_away')
-        range_filters['max_Away'] = st.number_input("Max Away", min_value=1.01, value=100.00, step=0.01, key='bt_max_away')
-        
-    col_o, col_b, _ = st.columns(3)
-    
-    with col_o:
-        if 'odds_ft_over25' in df.columns:
-            st.markdown("**Over 2.5**")
-            range_filters['min_Over_2.5'] = st.number_input("Min Over 2.5", min_value=1.01, value=1.01, step=0.01, key='bt_min_o25')
-            range_filters['max_Over_2.5'] = st.number_input("Max Over 2.5", min_value=1.01, value=100.00, step=0.01, key='bt_max_o25')
-            markets_for_backtest.append('Over 2.5')
-        else:
-            st.info("Colonna 'odds_ft_over25' non trovata per Over 2.5.")
-            
-    with col_b:
-        if 'odds_ft_btts_yes' in df.columns or 'odds_ft_over25' in df.columns:
-            st.markdown("**BTTS SI**")
-            range_filters['min_BTTS_SI'] = st.number_input("Min BTTS SI", min_value=1.01, value=1.01, step=0.01, key='bt_min_btts')
-            range_filters['max_BTTS_SI'] = st.number_input("Max BTTS SI", min_value=1.01, value=100.00, step=0.01, key='bt_max_btts')
-            markets_for_backtest.append('BTTS SI')
-        else:
-            st.info("Colonna 'odds_ft_btts_yes' non trovata per BTTS SI. Necessaria la colonna 'odds_ft_over25' come proxy.")
-            
-    st.markdown("---")
-    
-    # Selettore per il filtro universale
-    # Aggiungi 'Over 2.5' e 'BTTS SI' al selettore solo se le colonne quote rilevanti sono presenti
-    available_universal_filters = ['Nessuno']
-    if 'odds_ft_home_team_win' in df.columns: available_universal_filters.append('Home')
-    if 'odds_ft_draw' in df.columns: available_universal_filters.append('Draw')
-    if 'odds_ft_away_team_win' in df.columns: available_universal_filters.append('Away')
-    if 'odds_ft_over25' in df.columns: available_universal_filters.append('Over 2.5')
-    if 'odds_ft_btts_yes' in df.columns or 'odds_ft_over25' in df.columns: available_universal_filters.append('BTTS SI')
-
-    universal_filter_market = st.selectbox(
-        "**Filtro Universale per Backtest:** Seleziona quale filtro Min/Max applicare all'intero campione analizzato qui sotto.",
-        available_universal_filters,
-        key='universal_filter_market'
-    )
-
-
-if odds_filtered.empty or not {'odds_ft_home_team_win', 'odds_ft_draw', 'odds_ft_away_team_win', 'home_team_goal_count', 'away_team_goal_count'}.issubset(odds_filtered.columns):
-    st.info("Dati insufficienti o colonne quote FT/risultati finali non presenti per eseguire il backtest.")
-else:
-    # Mostra tutti i backtest richiesti in una singola tabella, applicando il filtro universale
-    display_all_backtests(odds_filtered, range_filters, universal_filter_market)
-    
-# ---------- Capitolo 5: Analisi Live Dinamica ----------
-st.markdown("---")
-st.markdown("## Capitolo 5: Analisi Live Dinamica (Live Stats)")
+st.markdown("## Capitolo 4: Analisi Live Dinamica (Live Stats)")
 
 if not {'home_team_goal_timings','away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count'}.issubset(df.columns):
     st.error("Per l'analisi Live Dinamica servono le colonne gol finali e i minuti dei gol.")
@@ -2179,14 +1752,16 @@ st.write(f"Partite storiche trovate con lo stesso stato live: **{len(live_filter
 if live_filtered_df.empty:
     st.info("Nessuna partita storica trovata che corrisponda allo stato live attuale con i filtri di base selezionati.")
 else:
-    # Calcola le statistiche residue
-    df_final_stats, df_tf15_rem, df_tf5_rem = calculate_remaining_timeframe_stats(live_filtered_df, current_min)
     
-    st.markdown("#### A. Statistiche Gol Residui (dal minuto attuale al FT)")
-    st.dataframe(style_table(df_final_stats, ['Percentuale %']), use_container_width=True)
-
-    # 3. Distribuzione Gol per Timeframe (solo futuro)
+    # 1. Statistiche Mercati Residui
+    st.markdown("#### A. Statistiche Mercati Residui (Calcolate su Gol Rimanenti)")
+    df_market_stats_rem = calculate_remaining_market_stats(live_filtered_df)
+    st.dataframe(style_table(df_market_stats_rem, ['Percentuale %']), use_container_width=True)
+    
+    # 2. Distribuzione Gol per Timeframe (solo futuro)
     st.markdown("#### B. Distribuzione Gol nel Minutaggio Futuro")
+    
+    df_tf15_rem, df_tf5_rem = calculate_remaining_timeframe_stats(live_filtered_df, current_min)
     
     col_tf15, col_tf5 = st.columns(2)
     with col_tf15:
@@ -2204,4 +1779,4 @@ else:
 
     st.markdown("---")
     st.markdown("#### C. Anteprima Partite Live Trovate")
-    st.dataframe(live_filtered_df[['date', 'home_team_name', 'away_team_name', 'HT Score', 'home_team_goal_count', 'away_team_goal_count', 'home_team_goal_timings', 'away_team_goal_timings']].sort_values(by='date', ascending=False), use_container_width=True)
+    st.dataframe(live_filtered_df[['date', 'home_team_name', 'away_team_name', 'HT Score', 'home_team_goal_count', 'away_team_goal_count', 'home_team_goal_timings', 'away_team_goal_timings', 'remaining_total_goals']].sort_values(by='date', ascending=False), use_container_width=True)
