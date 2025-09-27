@@ -550,6 +550,7 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
             odds = row[odds_col]
             outcome = row['outcome']
             total_odds += odds
+            # Calcolo P&L Lay (Stake è la vincita potenziale se l'evento non accade)
             if not outcome:
                 # La scommessa "lay" vince se l'evento NON accade
                 total_pnl += stake
@@ -591,12 +592,6 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
         'BTTS SI': 'odds_ft_btts_yes',
     }
     
-    # Mappa delle chiavi range per Range_Filters
-    range_key_map = {
-        'Home': 'min_Home', 'Draw': 'min_Draw', 'Away': 'min_Away',
-        'Over 2.5': 'min_Over_2.5', 'BTTS SI': 'min_BTTS_SI'
-    }
-
     df_to_backtest = df.copy()
     filter_applied_label = "Nessuno"
     
@@ -1176,6 +1171,7 @@ with st.expander(f"Statistiche HT ({len(odds_filtered)} partite)"):
             st.dataframe(style_table(fts_sh_df, ['Percentuale %']), use_container_width=True)
         else:
             st.info("Colonne minuti gol non presenti: impossibile calcolare First to Score.")
+
 
 # ---------- Statistiche SH (Secondo Tempo) ----------
 with st.expander(f"Statistiche SH (Secondo Tempo) ({len(odds_filtered)} partite)"):
