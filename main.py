@@ -458,6 +458,7 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     """
     Esegue il backtest su un DataFrame filtrato per un mercato specifico (Home/Draw/Away/Over 2.5/BTTS Yes)
     e un tipo di scommessa (Back/Lay).
+    Nota: i filtri min_odd e max_odd vengono ignorati qui, il filtraggio deve essere fatto a monte sul DF.
     """
     results = {
         'total_bets': 0,
@@ -488,12 +489,6 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     outcome_col_away = 'away_team_goal_count'
 
     required_cols_base = {outcome_col_home, outcome_col_away}
-    
-    # Rimuovi il filtro Min/Max dal backtest interno, dato che verrà applicato a monte
-    # ******* RIMOZIONE FILTRO QUOTA INTERNO PER OBIETTIVO UTENTE *******
-    # df = df[df[odds_col] >= min_odd] 
-    # df = df[df[odds_col] <= max_odd]
-    # *******************************************************************
     
     if not required_cols_base.issubset(df.columns):
         return results
@@ -535,6 +530,8 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     total_pnl = 0.0
     winning_bets = 0
     total_odds = 0.0
+    
+    stake = 1.00 # Stake fisso per il backtest riepilogativo
 
     # 3. Calcolo P&L
     if bet_type == 'Back':
@@ -593,9 +590,19 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
         'Over 2.5': 'odds_ft_over25',
         'BTTS SI': 'odds_ft_btts_yes',
     }
+    
+    # Mappa delle chiavi range per Range_Filters
+    range_key_map = {
+        'Home': 'min_Home', 'Draw': 'min_Draw', 'Away': 'min_Away',
+        'Over 2.5': 'min_Over_2.5', 'BTTS SI': 'min_BTTS_SI'
+    }
 
     df_to_backtest = df.copy()
     filter_applied_label = "Nessuno"
+    
+    # Valori di quota da mostrare nella colonna Filtro Rilevante
+    min_o_display = 1.01
+    max_o_display = 100.00
     
     # ******* APPLICAZIONE FILTRO UNIVERSALE *******
     if universal_filter_market and universal_filter_market != 'Nessuno':
@@ -603,9 +610,11 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
         col_name = odds_col_map.get(universal_filter_market)
         min_o = range_filters.get(f'min_{market_key}', 1.01)
         max_o = range_filters.get(f'max_{market_key}', 100.00)
+        
+        min_o_display = min_o
+        max_o_display = max_o
 
         if col_name and col_name in df_to_backtest.columns:
-            original_count = len(df_to_backtest)
             df_to_backtest = df_to_backtest[
                 (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
             ]
@@ -613,7 +622,6 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
         elif universal_filter_market == 'BTTS SI' and 'odds_ft_over25' in df_to_backtest.columns:
             # Usa Over 2.5 come proxy per il filtro se BTTS SI manca
             col_name = 'odds_ft_over25'
-            original_count = len(df_to_backtest)
             df_to_backtest = df_to_backtest[
                 (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
             ]
@@ -645,12 +653,6 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
     for bet_type in bet_types:
         for market in markets_to_test:
             
-            # Non applichiamo filtri Min/Max all'interno del backtest, ma li passiamo
-            # per la sola visualizzazione (rimarranno 1.01/100.00 se non è il filtro universale)
-            market_key = market.replace(" ", "_")
-            min_odd_display = range_filters.get(f'min_{market_key}', 1.01)
-            max_odd_display = range_filters.get(f'max_{market_key}', 100.00)
-            
             # Controlla la presenza delle colonne necessarie
             odds_col = required_odds_cols.get(market)
             
@@ -680,8 +682,8 @@ def display_all_backtests(df, range_filters, universal_filter_market=None):
 
             all_results.append({
                 'Mercato': mercato_label,
-                # Il filtro quote visualizzato è quello specifico impostato dall'utente, anche se non applicato come filtro sul campione
-                'Filtro Quote (Solo Display)': f"da {min_odd_display:.2f} a {max_odd_display:.2f}", 
+                # Usa i valori del filtro universale per la visualizzazione, se impostato.
+                'Filtro del Mercato Rilevante': f"da {min_o_display:.2f} a {max_o_display:.2f}", 
                 'Scommesse Totali': results['total_bets'],
                 'Vincenti': results['winning_bets'],
                 'Tasso di Vittoria %': win_rate_pct,
@@ -1727,7 +1729,7 @@ st.markdown("## Capitolo 4: Backtesting Quote FT")
 
 # --- UI per i filtri delle quote (nuova sezione) ---
 range_filters = {}
-markets_for_backtest = ['Home', 'Draw', 'Away', 'Over 2.5', 'BTTS SI']
+markets_for_backtest = ['Home', 'Draw', 'Away']
 
 with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
     
@@ -1771,9 +1773,17 @@ with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
     st.markdown("---")
     
     # Selettore per il filtro universale
+    # Aggiungi 'Over 2.5' e 'BTTS SI' al selettore solo se le colonne quote rilevanti sono presenti
+    available_universal_filters = ['Nessuno']
+    if 'odds_ft_home_team_win' in df.columns: available_universal_filters.append('Home')
+    if 'odds_ft_draw' in df.columns: available_universal_filters.append('Draw')
+    if 'odds_ft_away_team_win' in df.columns: available_universal_filters.append('Away')
+    if 'odds_ft_over25' in df.columns: available_universal_filters.append('Over 2.5')
+    if 'odds_ft_btts_yes' in df.columns or 'odds_ft_over25' in df.columns: available_universal_filters.append('BTTS SI')
+
     universal_filter_market = st.selectbox(
         "**Filtro Universale per Backtest:** Seleziona quale filtro Min/Max applicare all'intero campione analizzato qui sotto.",
-        ['Nessuno'] + [m for m in markets_for_backtest if m in odds_filtered.columns or m in ['BTTS SI', 'Over 2.5']],
+        available_universal_filters,
         key='universal_filter_market'
     )
 
