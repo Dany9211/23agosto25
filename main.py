@@ -459,7 +459,7 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
     """
     Filtra il dataset storico per trovare partite che erano nello stesso stato live
     al minuto specificato, con l'aggiunta di filtri squadra specifici, considerando
-    la posizione (home/away) delle squadre selezionate.
+    la posizione (home/away) delle squadre selezionate contro qualsiasi avversario.
     """
     
     if not {'home_team_goal_count_half_time', 'away_team_goal_count_half_time', 'home_team_goal_timings', 'away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count', 'home_team_name', 'away_team_name'}.issubset(df.columns):
@@ -498,15 +498,14 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
     
     # 2. Filtra per Team specifici (se selezionati)
     
-    # Costruiamo la maschera booleana per i filtri squadra (OR tra Home e Away)
     team_mask = pd.Series([True] * len(filtered_df), index=filtered_df.index)
     
     if live_home_team and live_home_team != 'Tutte':
-        # La squadra selezionata come Home deve giocare in casa in questo campione
+        # Filtra solo le partite in cui la squadra LIVE HOME giocava in casa (contro qualsiasi avversario)
         team_mask = team_mask & (filtered_df['home_team_name'] == live_home_team)
         
     if live_away_team and live_away_team != 'Tutte':
-        # La squadra selezionata come Away deve giocare in trasferta in questo campione
+        # Filtra solo le partite in cui la squadra LIVE AWAY giocava in trasferta (contro qualsiasi avversario)
         team_mask = team_mask & (filtered_df['away_team_name'] == live_away_team)
 
     # Applica la maschera
@@ -1465,8 +1464,8 @@ with st.spinner(f"Ricerca partite storiche nello stato {home_score}-{away_score}
         away_score, 
         home_goal_mins, 
         away_goal_mins,
-        live_home_team_selection, # Nuovo filtro squadra Casa
-        live_away_team_selection  # Nuovo filtro squadra Trasferta
+        live_home_team_selection, # Squadra che deve giocare in casa
+        live_away_team_selection  # Squadra che deve giocare in trasferta
     )
     
     # Aggiunge il minuto live al DataFrame filtrato per la funzione di calcolo Next Goal
