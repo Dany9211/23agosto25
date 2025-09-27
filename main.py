@@ -537,11 +537,16 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
     filtered_df['remaining_home_goals'] = filtered_df['home_team_goal_count'] - filtered_df['home_goals_at_live_min']
     filtered_df['remaining_away_goals'] = filtered_df['away_team_goal_count'] - filtered_df['away_goals_at_live_min']
     filtered_df['remaining_total_goals'] = filtered_df['remaining_home_goals'] + filtered_df['remaining_away_goals']
+    
+    # Calcola il risultato HT effettivo (che non dipende dal minuto live, ma è utile per l'analisi HT)
+    # Rinominiamo solo le colonne per chiarezza nel Capitolo 4, non sovrascriviamo le originali
+    filtered_df['live_home_ht'] = filtered_df['home_team_goal_count_half_time']
+    filtered_df['live_away_ht'] = filtered_df['away_team_goal_count_half_time']
 
 
     return filtered_df
 
-def calculate_full_time_market_stats_live(df_live, initial_home_score, initial_away_score):
+def calculate_full_time_market_stats_live(df_live):
     """
     Calcola le statistiche dei mercati FT (WinRate, Over/Under, BTTS, ecc.)
     sui risultati finali effettivi del campione storico filtrato.
@@ -593,14 +598,17 @@ def calculate_full_time_market_stats_live(df_live, initial_home_score, initial_a
     df_dc['Odd Minima'] = df_dc['Percentuale %'].apply(odd_min_from_percent)
     
     # --- 3. Over/Under FT ---
-    goal_lines = [2.5, 3.5, 4.5, 5.5]
+    # Aggiunti 0.5 e 1.5
+    goal_lines = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]
     all_over_under_rows = []
     
     for gl in goal_lines:
+        # Over
         over_count = int((ft_total > (gl - 0.5)).sum())
         over_pct = round(over_count / total_matches * 100, 2)
         all_over_under_rows.append([f"Over {gl} FT", over_count, over_pct, odd_min_from_percent(over_pct)])
         
+        # Under
         under_count = int(total_matches - over_count)
         under_pct = round(under_count / total_matches * 100, 2)
         all_over_under_rows.append([f"Under {gl} FT", under_count, under_pct, odd_min_from_percent(under_pct)])
@@ -618,12 +626,15 @@ def calculate_full_time_market_stats_live(df_live, initial_home_score, initial_a
     df_btts['Percentuale %'] = (df_btts['Conteggio'] / total_matches * 100).round(2)
     df_btts['Odd Minima'] = df_btts['Percentuale %'].apply(odd_min_from_percent)
     
-    # --- 5. Next Goal ---
+    # --- 5. Next Goal (dal Minuto Live) ---
     next_goal_home = 0
     next_goal_away = 0
     no_more_goals = 0
     
     for _, row in df_live.iterrows():
+        # Dobbiamo usare il minuto live salvato nel DataFrame filtrato
+        live_minute = row['live_minute']
+        
         home_after = row['remaining_home_goals']
         away_after = row['remaining_away_goals']
         
@@ -631,13 +642,14 @@ def calculate_full_time_market_stats_live(df_live, initial_home_score, initial_a
             no_more_goals += 1
         elif home_after > 0 or away_after > 0:
             
-            h_mins = [m for m in parse_minutes_numeric(row.get('home_team_goal_timings')) if m > row['live_minute']]
-            a_mins = [m for m in parse_minutes_numeric(row.get('away_team_goal_timings')) if m > row['live_minute']]
+            h_mins = [m for m in parse_minutes_numeric(row.get('home_team_goal_timings')) if m > live_minute]
+            a_mins = [m for m in parse_minutes_numeric(row.get('away_team_goal_timings')) if m > live_minute]
             
             earliest_h = min(h_mins) if h_mins else float('inf')
             earliest_a = min(a_mins) if a_mins else float('inf')
             
             if earliest_h == float('inf') and earliest_a == float('inf'):
+                # Caso teoricamente impossibile se remaining > 0, ma per sicurezza
                 no_more_goals += 1
             elif earliest_h < earliest_a:
                 next_goal_home += 1
@@ -662,6 +674,95 @@ def calculate_full_time_market_stats_live(df_live, initial_home_score, initial_a
         'BTTS FT': df_btts,
         'Next Goal': df_next_score
     }
+
+def calculate_half_time_market_stats_live(df_live):
+    """
+    Calcola le statistiche dei mercati HT (WinRate, Over/Under, BTTS, ecc.)
+    sui risultati Half Time effettivi del campione storico filtrato.
+    """
+    if df_live.empty or not {'live_home_ht', 'live_away_ht'}.issubset(df_live.columns):
+        return None
+    
+    total_matches = len(df_live)
+    
+    ht_home = df_live['live_home_ht']
+    ht_away = df_live['live_away_ht']
+    ht_total = ht_home + ht_away
+    
+    # --- 1. Risultati Esatti HT ---
+    betfair_order = ["0 - 0","0 - 1","0 - 2","0 - 3",
+                     "1 - 0","1 - 1","1 - 2","1 - 3",
+                     "2 - 0","2 - 1","2 - 2","2 - 3",
+                     "3 - 0","3 - 1","3 - 2","3 - 3",
+                     "Any Other Home Win","Any Other Away Win","Any Other Draw"]
+    labels = [sh_cs_label(h, a) for h, a in zip(ht_home, ht_away)]
+    dist = pd.Series(labels).value_counts(dropna=False).reindex(betfair_order, fill_value=0)
+    df_cs_ht = pd.DataFrame({'HT (Betfair)': dist.index, 'Conteggio': dist.values})
+    df_cs_ht['Percentuale %'] = (df_cs_ht['Conteggio'] / total_matches * 100).round(2)
+    df_cs_ht['Odd Minima'] = df_cs_ht['Percentuale %'].apply(odd_min_from_percent)
+    df_cs_ht['order'] = df_cs_ht['HT (Betfair)'].apply(lambda x: betfair_order.index(x))
+    df_cs_ht = df_cs_ht.sort_values('order').drop(columns=['order'])
+    
+    # --- 2. WinRate & Doppia Chance HT ---
+    home_w = (ht_home > ht_away).sum()
+    draws = (ht_home == ht_away).sum()
+    away_w = (ht_home < ht_away).sum()
+    
+    df_wr = pd.DataFrame({
+        'Esito': ['1 HT (Vittoria Casa)','X HT (Pareggio)','2 HT (Vittoria Trasferta)'],
+        'Conteggio': [home_w, draws, away_w]
+    })
+    df_wr['Percentuale %'] = (df_wr['Conteggio'] / total_matches * 100).round(2)
+    df_wr['Odd Minima'] = df_wr['Percentuale %'].apply(odd_min_from_percent)
+    
+    count_1X = int(((ht_home > ht_away) | (ht_home == ht_away)).sum())
+    count_X2 = int(((ht_home < ht_away) | (ht_home == ht_away)).sum())
+    count_12 = int((ht_home != ht_away).sum())
+    
+    df_dc = pd.DataFrame({
+        'Mercato': ['1X HT','X2 HT','12 HT'],
+        'Conteggio': [count_1X, count_X2, count_12]
+    })
+    df_dc['Percentuale %'] = (df_dc['Conteggio'] / total_matches * 100).round(2)
+    df_dc['Odd Minima'] = df_dc['Percentuale %'].apply(odd_min_from_percent)
+    
+    # --- 3. Over/Under HT ---
+    # Aggiunti 0.5 e 1.5
+    goal_lines = [0.5, 1.5, 2.5, 3.5]
+    all_over_under_rows = []
+    
+    for gl in goal_lines:
+        # Over
+        over_count = int((ht_total > (gl - 0.5)).sum())
+        over_pct = round(over_count / total_matches * 100, 2)
+        all_over_under_rows.append([f"Over {gl} HT", over_count, over_pct, odd_min_from_percent(over_pct)])
+        
+        # Under
+        under_count = int(total_matches - over_count)
+        under_pct = round(under_count / total_matches * 100, 2)
+        all_over_under_rows.append([f"Under {gl} HT", under_count, under_pct, odd_min_from_percent(under_pct)])
+
+    df_over_under = pd.DataFrame(all_over_under_rows, columns=['Mercato','Conteggio','Percentuale %','Odd Minima'])
+    
+    # --- 4. BTTS HT ---
+    btts_yes = int(((ht_home >= 1) & (ht_away >= 1)).sum())
+    btts_no = int(total_matches - btts_yes)
+    
+    df_btts = pd.DataFrame({
+        'Mercato': ['BTTS SI (HT)','BTTS NO (HT)'],
+        'Conteggio': [btts_yes, btts_no]
+    })
+    df_btts['Percentuale %'] = (df_btts['Conteggio'] / total_matches * 100).round(2)
+    df_btts['Odd Minima'] = df_btts['Percentuale %'].apply(odd_min_from_percent)
+
+    return {
+        'Risultati Esatti HT': df_cs_ht,
+        'WinRate': df_wr,
+        'Doppia Chance': df_dc,
+        'Over/Under HT': df_over_under,
+        'BTTS HT': df_btts,
+    }
+
 
 def calculate_remaining_timeframe_stats(df_live, current_min):
     """
@@ -1431,8 +1532,8 @@ with st.expander(f"Statistiche FT (Full Time) ({len(odds_filtered)} partite)"):
 st.markdown("---")
 st.markdown("## Capitolo 4: Analisi Live Dinamica (Live Stats)")
 
-if not {'home_team_goal_timings','away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count'}.issubset(df.columns):
-    st.error("Per l'analisi Live Dinamica servono le colonne gol finali e i minuti dei gol.")
+if not {'home_team_goal_timings','away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count', 'home_team_goal_count_half_time', 'away_team_goal_count_half_time'}.issubset(df.columns):
+    st.error("Per l'analisi Live Dinamica servono le colonne gol finali, HT e i minuti dei gol.")
     st.stop()
     
 # Prepara la lista delle squadre per il selettore Live
@@ -1491,39 +1592,70 @@ if live_filtered_df.empty:
     st.info("Nessuna partita storica trovata che corrisponda allo stato live attuale con i filtri di base selezionati.")
 else:
     
-    # 1. Statistiche Mercati FT (Risultato finale effettivo)
-    st.markdown("#### A. Statistiche Finali (Risultato FT del Campione Live Filtrato)")
-    market_stats = calculate_full_time_market_stats_live(live_filtered_df, home_score, away_score)
-    
     total_live_matches = len(live_filtered_df)
     
-    if market_stats:
+    # Calcola statistiche HT
+    ht_market_stats = calculate_half_time_market_stats_live(live_filtered_df)
+    
+    st.markdown("#### A. Statistiche Half Time (Risultato HT del Campione Live Filtrato)")
+    
+    if ht_market_stats:
+        col_wr_ht, col_dc_ht = st.columns(2)
+        with col_wr_ht:
+            st.markdown(f"**WinRate HT ({total_live_matches})**")
+            st.dataframe(style_table(ht_market_stats['WinRate'], ['Percentuale %']), use_container_width=True)
+        with col_dc_ht:
+            st.markdown(f"**Doppia Chance HT ({total_live_matches})**")
+            st.dataframe(style_table(ht_market_stats['Doppia Chance'], ['Percentuale %']), use_container_width=True)
+        
+        st.markdown(f"**Risultati Esatti HT ({total_live_matches})**")
+        st.dataframe(style_table(ht_market_stats['Risultati Esatti HT'], ['Percentuale %']), use_container_width=True)
+        
+        col_ou_ht, col_btts_ht = st.columns(2)
+        with col_ou_ht:
+            st.markdown(f"**Over / Under HT ({total_live_matches})**")
+            st.dataframe(style_table(ht_market_stats['Over/Under HT'], ['Percentuale %']), use_container_width=True)
+        with col_btts_ht:
+            st.markdown(f"**BTTS HT ({total_live_matches})**")
+            st.dataframe(style_table(ht_market_stats['BTTS HT'], ['Percentuale %']), use_container_width=True)
+    else:
+        st.info("Dati HT mancanti nel campione filtrato.")
+    
+    
+    # Calcola statistiche FT
+    ft_market_stats = calculate_full_time_market_stats_live(live_filtered_df)
+    
+    st.markdown("#### B. Statistiche Full Time (Risultato FT del Campione Live Filtrato)")
+    
+    if ft_market_stats:
         
         col_wr, col_dc = st.columns(2)
         with col_wr:
             st.markdown(f"**WinRate FT ({total_live_matches})**")
-            st.dataframe(style_table(market_stats['WinRate'], ['Percentuale %']), use_container_width=True)
+            st.dataframe(style_table(ft_market_stats['WinRate'], ['Percentuale %']), use_container_width=True)
         with col_dc:
             st.markdown(f"**Doppia Chance FT ({total_live_matches})**")
-            st.dataframe(style_table(market_stats['Doppia Chance'], ['Percentuale %']), use_container_width=True)
+            st.dataframe(style_table(ft_market_stats['Doppia Chance'], ['Percentuale %']), use_container_width=True)
         
         st.markdown(f"**Risultati Esatti FT ({total_live_matches})**")
-        st.dataframe(style_table(market_stats['Risultati Esatti FT'], ['Percentuale %']), use_container_width=True)
+        st.dataframe(style_table(ft_market_stats['Risultati Esatti FT'], ['Percentuale %']), use_container_width=True)
         
         col_ou, col_btts = st.columns(2)
         with col_ou:
             st.markdown(f"**Over / Under FT ({total_live_matches})**")
-            st.dataframe(style_table(market_stats['Over/Under FT'], ['Percentuale %']), use_container_width=True)
+            st.dataframe(style_table(ft_market_stats['Over/Under FT'], ['Percentuale %']), use_container_width=True)
         with col_btts:
             st.markdown(f"**BTTS FT ({total_live_matches})**")
-            st.dataframe(style_table(market_stats['BTTS FT'], ['Percentuale %']), use_container_width=True)
+            st.dataframe(style_table(ft_market_stats['BTTS FT'], ['Percentuale %']), use_container_width=True)
             
         st.markdown(f"**Next Goal (dal Minuto Live) ({total_live_matches})**")
-        st.dataframe(style_table(market_stats['Next Goal'], ['Percentuale %']), use_container_width=True)
+        st.dataframe(style_table(ft_market_stats['Next Goal'], ['Percentuale %']), use_container_width=True)
+    else:
+        st.info("Dati FT mancanti nel campione filtrato.")
     
     
-    # 2. Distribuzione Gol per Timeframe (solo futuro)
-    st.markdown("#### B. Distribuzione Gol nel Minutaggio Futuro (dopo il minuto corrente)")
+    # 3. Distribuzione Gol per Timeframe (solo futuro)
+    st.markdown("#### C. Distribuzione Gol nel Minutaggio Futuro (dopo il minuto corrente)")
     
     df_tf15_rem, df_tf5_rem = calculate_remaining_timeframe_stats(live_filtered_df, current_min)
     
@@ -1541,5 +1673,5 @@ else:
         st.dataframe(style_table(df_tf5_display, ['Percentuale %']), use_container_width=True)
 
     st.markdown("---")
-    st.markdown("#### C. Anteprima Partite Live Trovate")
+    st.markdown("#### D. Anteprima Partite Live Trovate")
     st.dataframe(live_filtered_df[['date', 'home_team_name', 'away_team_name', 'HT Score', 'home_team_goal_count', 'away_team_goal_count', 'home_team_goal_timings', 'away_team_goal_timings', 'remaining_total_goals']].sort_values(by='date', ascending=False), use_container_width=True)
