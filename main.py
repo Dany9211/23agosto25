@@ -498,15 +498,22 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
     
     # 2. Filtra per Team specifici (se selezionati)
     
+    # Costruiamo la maschera booleana base (True per tutte le partite filtrate per punteggio)
     team_mask = pd.Series([True] * len(filtered_df), index=filtered_df.index)
     
-    if live_home_team and live_home_team != 'Tutte':
-        # Filtra solo le partite in cui la squadra LIVE HOME giocava in casa (contro qualsiasi avversario)
-        team_mask = team_mask & (filtered_df['home_team_name'] == live_home_team)
-        
-    if live_away_team and live_away_team != 'Tutte':
-        # Filtra solo le partite in cui la squadra LIVE AWAY giocava in trasferta (contro qualsiasi avversario)
-        team_mask = team_mask & (filtered_df['away_team_name'] == live_away_team)
+    # Controlliamo quali squadre sono state selezionate
+    home_selected = live_home_team and live_home_team != 'Tutte'
+    away_selected = live_away_team and live_away_team != 'Tutte'
+    
+    if home_selected and away_selected:
+        # H2H: La squadra Home Live DEVE essere la home_team E la squadra Away Live DEVE essere la away_team
+        team_mask = (filtered_df['home_team_name'] == live_home_team) & (filtered_df['away_team_name'] == live_away_team)
+    elif home_selected:
+        # Solo Home: La squadra Home Live DEVE essere la home_team (contro qualsiasi avversario)
+        team_mask = (filtered_df['home_team_name'] == live_home_team)
+    elif away_selected:
+        # Solo Away: La squadra Away Live DEVE essere la away_team (contro qualsiasi avversario)
+        team_mask = (filtered_df['away_team_name'] == live_away_team)
 
     # Applica la maschera
     filtered_df = filtered_df[team_mask].copy()
