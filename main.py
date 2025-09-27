@@ -489,11 +489,17 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
 
     required_cols_base = {outcome_col_home, outcome_col_away}
     
-    if odds_col not in df.columns and market in ['Home', 'Draw', 'Away', 'Over 2.5']:
-        # Se la colonna quote per i mercati principali manca
-        return results
+    # Rimuovi il filtro Min/Max dal backtest interno, dato che verrà applicato a monte
+    # ******* RIMOZIONE FILTRO QUOTA INTERNO PER OBIETTIVO UTENTE *******
+    # df = df[df[odds_col] >= min_odd] 
+    # df = df[df[odds_col] <= max_odd]
+    # *******************************************************************
     
     if not required_cols_base.issubset(df.columns):
+        return results
+    
+    # Gestione della colonna quote e dell'outcome
+    if market in ['Home', 'Draw', 'Away', 'Over 2.5'] and odds_col not in df.columns:
         return results
 
     df['total_goals'] = df[outcome_col_home] + df[outcome_col_away]
@@ -508,13 +514,8 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     elif market == 'Over 2.5':
         df['outcome'] = (df['total_goals'] >= 3)
     elif market == 'BTTS SI':
-        # Se la colonna quote BTTS SI non esiste, la calcoliamo come 1/(Probabilità BTTS SI) se possibile
-        # Per il backtest, assumiamo la quota BTTS SI sia disponibile, se no usiamo una mock-up (non ideale ma necessaria)
         if 'odds_ft_btts_yes' not in df.columns:
-            # Calcola l'outcome del BTTS SI
             df['outcome'] = (df[outcome_col_home] >= 1) & (df[outcome_col_away] >= 1)
-            # Dobbiamo usare una colonna quote esistente come proxy o semplicemente non eseguire.
-            # Per mantenere l'operatività, useremo la quota over 2.5 come proxy se BTTS SI manca, ma avvertiamo l'utente.
             if 'odds_ft_over25' in df.columns:
                 odds_col = 'odds_ft_over25'
             else:
@@ -525,9 +526,6 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     else:
         return results
 
-    # 2. Applicazione dei filtri quota (Min/Max)
-    df = df[df[odds_col] >= min_odd]
-    df = df[df[odds_col] <= max_odd]
     df = df.dropna(subset=[odds_col, 'outcome'])
     
     if df.empty:
@@ -581,12 +579,54 @@ def backtest(df, bet_type, market, stake, min_odd=1.01, max_odd=100.00):
     
     return results
 
-def display_all_backtests(df, range_filters):
+def display_all_backtests(df, range_filters, universal_filter_market=None):
     """
-    Esegue e visualizza il backtest per tutte le combinazioni specificate.
-    Accetta `range_filters` per applicare i filtri dinamici Min/Max.
+    Esegue e visualizza il backtest per tutte le combinazioni specificate,
+    applicando un eventuale filtro universale.
     """
+    
+    # Mappa delle colonne quote per il filtro universale
+    odds_col_map = {
+        'Home': 'odds_ft_home_team_win',
+        'Draw': 'odds_ft_draw',
+        'Away': 'odds_ft_away_team_win',
+        'Over 2.5': 'odds_ft_over25',
+        'BTTS SI': 'odds_ft_btts_yes',
+    }
+
+    df_to_backtest = df.copy()
+    filter_applied_label = "Nessuno"
+    
+    # ******* APPLICAZIONE FILTRO UNIVERSALE *******
+    if universal_filter_market and universal_filter_market != 'Nessuno':
+        market_key = universal_filter_market.replace(" ", "_")
+        col_name = odds_col_map.get(universal_filter_market)
+        min_o = range_filters.get(f'min_{market_key}', 1.01)
+        max_o = range_filters.get(f'max_{market_key}', 100.00)
+
+        if col_name and col_name in df_to_backtest.columns:
+            original_count = len(df_to_backtest)
+            df_to_backtest = df_to_backtest[
+                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
+            ]
+            filter_applied_label = f"{universal_filter_market} (da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
+        elif universal_filter_market == 'BTTS SI' and 'odds_ft_over25' in df_to_backtest.columns:
+            # Usa Over 2.5 come proxy per il filtro se BTTS SI manca
+            col_name = 'odds_ft_over25'
+            original_count = len(df_to_backtest)
+            df_to_backtest = df_to_backtest[
+                (df_to_backtest[col_name] >= min_o) & (df_to_backtest[col_name] <= max_o)
+            ]
+            filter_applied_label = f"BTTS SI (Filtro proxy O2.5 da {min_o:.2f} a {max_o:.2f}, {len(df_to_backtest)} partite)"
+        else:
+             st.warning(f"Il filtro universale '{universal_filter_market}' non è stato applicato perché la colonna quote non è presente nel dataset.")
+             
+    st.markdown(f"**Filtro Universale Appplicato:** {filter_applied_label}")
     st.markdown("### Riepilogo Backtesting (Stake 1.00 €)")
+    
+    if df_to_backtest.empty:
+        st.info("Nessuna partita rimanente dopo l'applicazione del filtro universale.")
+        return
 
     markets_to_test = ['Home', 'Draw', 'Away', 'Over 2.5', 'BTTS SI']
     bet_types = ['Back', 'Lay']
@@ -594,7 +634,6 @@ def display_all_backtests(df, range_filters):
 
     all_results = []
     
-    # Check for required columns based on filters
     required_odds_cols = {
         'Home': 'odds_ft_home_team_win',
         'Draw': 'odds_ft_draw',
@@ -606,22 +645,25 @@ def display_all_backtests(df, range_filters):
     for bet_type in bet_types:
         for market in markets_to_test:
             
-            # Recupera i filtri dal dizionario
-            min_odd = range_filters.get(f'min_{market.replace(" ", "_")}', 1.01)
-            max_odd = range_filters.get(f'max_{market.replace(" ", "_")}', 100.00)
+            # Non applichiamo filtri Min/Max all'interno del backtest, ma li passiamo
+            # per la sola visualizzazione (rimarranno 1.01/100.00 se non è il filtro universale)
+            market_key = market.replace(" ", "_")
+            min_odd_display = range_filters.get(f'min_{market_key}', 1.01)
+            max_odd_display = range_filters.get(f'max_{market_key}', 100.00)
             
             # Controlla la presenza delle colonne necessarie
             odds_col = required_odds_cols.get(market)
             
-            # Se la colonna quote non è presente e non è BTTS SI, salta il test
-            if odds_col not in df.columns and market != 'BTTS SI':
+            # Se la colonna quote per i mercati principali manca, salta il test
+            if odds_col not in df_to_backtest.columns and market != 'BTTS SI':
                 continue
                 
-            # Se è BTTS SI, controlliamo se BTTS SI è nel DataFrame o se Over 2.5 è disponibile (come fallback non ideale, ma almeno backtestabile)
-            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df.columns and required_odds_cols['Over 2.5'] not in df.columns:
+            # Se è BTTS SI, controlliamo se le colonne necessarie sono presenti.
+            if market == 'BTTS SI' and required_odds_cols['BTTS SI'] not in df_to_backtest.columns and required_odds_cols['Over 2.5'] not in df_to_backtest.columns:
                 continue
 
-            results = backtest(df, bet_type, market, stake, min_odd, max_odd)
+            # Il backtest viene eseguito sul DF già filtrato universalmente
+            results = backtest(df_to_backtest, bet_type, market, stake)
             
             if results['total_bets'] == 0:
                 continue
@@ -638,7 +680,8 @@ def display_all_backtests(df, range_filters):
 
             all_results.append({
                 'Mercato': mercato_label,
-                'Filtro Quote': f"da {min_odd:.2f} a {max_odd:.2f}",
+                # Il filtro quote visualizzato è quello specifico impostato dall'utente, anche se non applicato come filtro sul campione
+                'Filtro Quote (Solo Display)': f"da {min_odd_display:.2f} a {max_odd_display:.2f}", 
                 'Scommesse Totali': results['total_bets'],
                 'Vincenti': results['winning_bets'],
                 'Tasso di Vittoria %': win_rate_pct,
@@ -1684,6 +1727,8 @@ st.markdown("## Capitolo 4: Backtesting Quote FT")
 
 # --- UI per i filtri delle quote (nuova sezione) ---
 range_filters = {}
+markets_for_backtest = ['Home', 'Draw', 'Away', 'Over 2.5', 'BTTS SI']
+
 with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
     
     col_h, col_x, col_a = st.columns(3)
@@ -1710,6 +1755,7 @@ with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
             st.markdown("**Over 2.5**")
             range_filters['min_Over_2.5'] = st.number_input("Min Over 2.5", min_value=1.01, value=1.01, step=0.01, key='bt_min_o25')
             range_filters['max_Over_2.5'] = st.number_input("Max Over 2.5", min_value=1.01, value=100.00, step=0.01, key='bt_max_o25')
+            markets_for_backtest.append('Over 2.5')
         else:
             st.info("Colonna 'odds_ft_over25' non trovata per Over 2.5.")
             
@@ -1718,12 +1764,22 @@ with st.expander("Filtri Quote (Range Min/Max per Backtest)"):
             st.markdown("**BTTS SI**")
             range_filters['min_BTTS_SI'] = st.number_input("Min BTTS SI", min_value=1.01, value=1.01, step=0.01, key='bt_min_btts')
             range_filters['max_BTTS_SI'] = st.number_input("Max BTTS SI", min_value=1.01, value=100.00, step=0.01, key='bt_max_btts')
+            markets_for_backtest.append('BTTS SI')
         else:
             st.info("Colonna 'odds_ft_btts_yes' non trovata per BTTS SI. Necessaria la colonna 'odds_ft_over25' come proxy.")
+            
+    st.markdown("---")
+    
+    # Selettore per il filtro universale
+    universal_filter_market = st.selectbox(
+        "**Filtro Universale per Backtest:** Seleziona quale filtro Min/Max applicare all'intero campione analizzato qui sotto.",
+        ['Nessuno'] + [m for m in markets_for_backtest if m in odds_filtered.columns or m in ['BTTS SI', 'Over 2.5']],
+        key='universal_filter_market'
+    )
 
 
 if odds_filtered.empty or not {'odds_ft_home_team_win', 'odds_ft_draw', 'odds_ft_away_team_win', 'home_team_goal_count', 'away_team_goal_count'}.issubset(odds_filtered.columns):
     st.info("Dati insufficienti o colonne quote FT/risultati finali non presenti per eseguire il backtest.")
 else:
-    # Mostra tutti i backtest richiesti in una singola tabella
-    display_all_backtests(odds_filtered, range_filters)
+    # Mostra tutti i backtest richiesti in una singola tabella, applicando il filtro universale
+    display_all_backtests(odds_filtered, range_filters, universal_filter_market)
