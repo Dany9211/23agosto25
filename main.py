@@ -458,11 +458,12 @@ def get_last_matches_info(df, home_team, away_team):
 def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins, away_goal_mins, live_home_team=None, live_away_team=None):
     """
     Filtra il dataset storico per trovare partite che erano nello stesso stato live
-    al minuto specificato, con l'aggiunta di filtri squadra specifici.
+    al minuto specificato, con l'aggiunta di filtri squadra specifici, considerando
+    la posizione (home/away) delle squadre selezionate.
     """
     
-    if not {'home_team_goal_count_half_time', 'away_team_goal_count_half_time', 'home_team_goal_timings', 'away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count'}.issubset(df.columns):
-        st.error("Colonne dati gol/minuti mancanti per l'analisi live.")
+    if not {'home_team_goal_count_half_time', 'away_team_goal_count_half_time', 'home_team_goal_timings', 'away_team_goal_timings', 'home_team_goal_count', 'away_team_goal_count', 'home_team_name', 'away_team_name'}.issubset(df.columns):
+        st.error("Colonne dati gol/minuti/squadre mancanti per l'analisi live.")
         return pd.DataFrame()
 
     def get_goal_count_at_minute(goal_timings_cell, minute_limit):
@@ -496,16 +497,24 @@ def filter_live_matches(df, current_min, home_score, away_score, home_goal_mins,
     ].copy()
     
     # 2. Filtra per Team specifici (se selezionati)
+    
+    # Costruiamo la maschera booleana per i filtri squadra (OR tra Home e Away)
+    team_mask = pd.Series([True] * len(filtered_df), index=filtered_df.index)
+    
     if live_home_team and live_home_team != 'Tutte':
-        filtered_df = filtered_df[filtered_df['home_team_name'] == live_home_team]
+        # La squadra selezionata come Home deve giocare in casa in questo campione
+        team_mask = team_mask & (filtered_df['home_team_name'] == live_home_team)
         
     if live_away_team and live_away_team != 'Tutte':
-        filtered_df = filtered_df[filtered_df['away_team_name'] == live_away_team]
-    
+        # La squadra selezionata come Away deve giocare in trasferta in questo campione
+        team_mask = team_mask & (filtered_df['away_team_name'] == live_away_team)
+
+    # Applica la maschera
+    filtered_df = filtered_df[team_mask].copy()
+
     # 3. Filtra per Goal Timing Specifici (solo se forniti)
     
     if home_goal_mins:
-        # Pulisce i token di input per la ricerca esatta
         required_home_tokens = [re.escape(t.strip()) for t in home_goal_mins.split(',') if t.strip()]
         for token in required_home_tokens:
             filtered_df = filtered_df[filtered_df['home_team_goal_timings'].astype(str).str.contains(token)]
